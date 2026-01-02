@@ -1,7 +1,9 @@
 use crate::network::WifiInfo;
+use ratatui::widgets::ListState;
 use throbber_widgets_tui::ThrobberState;
 use tui_input::Input;
 
+// TODO: document what each of these are
 pub enum Msg {
     Tick,
     Quit,
@@ -32,6 +34,7 @@ pub struct App {
     pub should_quit: bool,
     pub networks: Vec<WifiInfo>,
     pub selected_index: usize,
+    pub list_state: ListState,
     pub is_scanning: bool,
     pub active_ssid: Option<String>,
     pub input_mode: InputMode,
@@ -44,10 +47,13 @@ pub struct App {
 
 impl App {
     pub fn new() -> Self {
+        let mut list_state = ListState::default();
+        list_state.select(Some(0));
         Self {
             should_quit: false,
             networks: Vec::new(),
             selected_index: 0,
+            list_state,
             is_scanning: false,
             active_ssid: None,
             input_mode: InputMode::Normal,
@@ -70,11 +76,13 @@ impl App {
             Msg::MoveUp => {
                 if self.selected_index > 0 {
                     self.selected_index -= 1;
+                    self.list_state.select(Some(self.selected_index));
                 }
             }
             Msg::MoveDown => {
                 if self.selected_index + 1 < self.networks.len() {
                     self.selected_index += 1;
+                    self.list_state.select(Some(self.selected_index));
                 }
             }
             Msg::Scan => {
@@ -96,6 +104,7 @@ impl App {
                 if let Some(ssid) = previously_selected_ssid {
                     if let Some(new_index) = self.networks.iter().position(|n| n.ssid == ssid) {
                         self.selected_index = new_index;
+                        self.list_state.select(Some(new_index));
                     } else {
                         // Network disappeared - show error if password dialog was open
                         if self.input_mode == InputMode::Editing {
@@ -108,14 +117,18 @@ impl App {
                         // Clamp selection to valid bounds
                         if !self.networks.is_empty() {
                             self.selected_index = self.selected_index.min(self.networks.len() - 1);
+                            self.list_state.select(Some(self.selected_index));
                         } else {
                             self.selected_index = 0;
+                            self.list_state.select(Some(0));
                         }
                     }
                 } else if !self.networks.is_empty() {
                     self.selected_index = self.selected_index.min(self.networks.len() - 1);
+                    self.list_state.select(Some(self.selected_index));
                 } else {
                     self.selected_index = 0;
+                    self.list_state.select(Some(0));
                 }
             }
             Msg::Error(e) => {

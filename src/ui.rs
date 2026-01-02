@@ -250,7 +250,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     f.render_widget(text, area);
 }
 
-fn draw_network_list(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
+fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) {
     let items: Vec<ListItem> = app
         .networks
         .iter()
@@ -284,15 +284,19 @@ fn draw_network_list(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     } else {
         Style::default()
     };
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title("Networks")
-            .style(block_style),
-    );
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .title("Networks")
+                .style(block_style),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
 
-    // We handle selection manually via style in the list item for simplicity
-    // or we could use ListState.
-    f.render_widget(list, area);
+    f.render_stateful_widget(list, area, &mut app.list_state);
 }
