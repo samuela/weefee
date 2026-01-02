@@ -268,6 +268,17 @@ async fn main() -> Result<()> {
                     app.update(Msg::SubmitDisconnect);
                     let _ = net_tx.send(NetCmd::Disconnect).await;
                 }
+                Msg::EnterInput => {
+                    app.update(Msg::EnterInput);
+                    // If we're now in Connecting mode, it means it's a known network
+                    // and we should connect without asking for password
+                    if app.input_mode == InputMode::Connecting {
+                        if let Some(ssid) = app.connecting_ssid.clone() {
+                            // Empty password for known networks (stored password will be used)
+                            let _ = net_tx.send(NetCmd::Connect(ssid, String::new())).await;
+                        }
+                    }
+                }
                 _ => {
                     app.update(msg);
                 }

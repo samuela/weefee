@@ -14,6 +14,8 @@ pub struct WifiInfo {
     pub security: String,
     pub active: bool,
     pub weak_security: bool,
+    pub known: bool,
+    pub priority: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,14 +29,94 @@ pub struct NetworkClient {
     connection: Connection,
 }
 
+#[derive(Debug, Clone)]
+struct SavedConnection {
+    path: dbus::Path<'static>,
+    ssid: String,
+    priority: Option<i32>,
+}
+
 const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
+const NM_SETTINGS_PATH: &str = "/org/freedesktop/NetworkManager/Settings";
 const DEVICE_TYPE_WIFI: u32 = 2;
 
 impl NetworkClient {
     pub fn new() -> Result<Self> {
         let connection = Connection::new_system().context("Failed to connect to system bus")?;
         Ok(Self { connection })
+    }
+
+    fn get_saved_connections(&self) -> Result<Vec<SavedConnection>> {
+        let settings_proxy = self.connection.with_proxy(
+            NM_BUS_NAME,
+            NM_SETTINGS_PATH,
+            Duration::from_secs(5),
+        );
+
+        let (connection_paths,): (Vec<dbus::Path>,) = settings_proxy
+            .method_call(
+                "org.freedesktop.NetworkManager.Settings",
+                "ListConnections",
+                (),
+            )
+            .context("Failed to list connections")?;
+
+        let mut saved_connections = Vec::new();
+
+        for conn_path in connection_paths {
+            let conn_proxy = self.connection.with_proxy(
+                NM_BUS_NAME,
+                &conn_path,
+                Duration::from_secs(5),
+            );
+
+            // Get connection settings
+            let (settings,): (HashMap<String, PropMap>,) = match conn_proxy
+                .method_call(
+                    "org.freedesktop.NetworkManager.Settings.Connection",
+                    "GetSettings",
+                    (),
+                ) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            // Check if it's a WiFi connection
+            if let Some(conn_settings) = settings.get("connection") {
+                if let Some(conn_type) = conn_settings.get("type") {
+                    if let Some(type_str) = conn_type.0.as_str() {
+                        if type_str == "802-11-wireless" {
+                            // Get SSID
+                            if let Some(wifi_settings) = settings.get("802-11-wireless") {
+                                if let Some(ssid_variant) = wifi_settings.get("ssid") {
+                                    if let Some(ssid_bytes) = ssid_variant.0.as_iter() {
+                                        let ssid_vec: Vec<u8> = ssid_bytes
+                                            .filter_map(|v| v.as_u64().map(|b| b as u8))
+                                            .collect();
+                                        let ssid = String::from_utf8_lossy(&ssid_vec).to_string();
+
+                                        // Get autoconnect-priority
+                                        let priority = conn_settings
+                                            .get("autoconnect-priority")
+                                            .and_then(|v| v.0.as_i64())
+                                            .map(|p| p as i32);
+
+                                        saved_connections.push(SavedConnection {
+                                            path: conn_path.clone(),
+                                            ssid,
+                                            priority,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(saved_connections)
     }
 
     pub fn get_device_info(&self) -> Result<WifiDeviceInfo> {
@@ -76,6 +158,9 @@ impl NetworkClient {
         let nm_proxy = self
             .connection
             .with_proxy(NM_BUS_NAME, NM_PATH, Duration::from_secs(5));
+
+        // Get saved connections
+        let saved_connections = self.get_saved_connections().unwrap_or_default();
 
         // Get all devices
         let device_paths = nm_proxy.get_devices().context("Failed to get devices")?;
@@ -144,12 +229,19 @@ impl NetworkClient {
                             // Only mark as active if device is truly activated and this is the active AP
                             let is_active = ap_path == truly_active_ap;
 
+                            // Check if this network is known
+                            let saved_conn = saved_connections.iter().find(|c| c.ssid == ssid);
+                            let known = saved_conn.is_some();
+                            let priority = saved_conn.and_then(|c| c.priority);
+
                             networks.push(WifiInfo {
                                 ssid,
                                 strength,
                                 security,
                                 active: is_active,
                                 weak_security,
+                                known,
+                                priority,
                             });
                         }
                     }
@@ -213,58 +305,116 @@ impl NetworkClient {
 
         let wifi_device_path = wifi_device_path.context("No WiFi device found")?;
 
-        let mut final_map: HashMap<&str, PropMap> = HashMap::new();
+        // Check if this is a known network
+        let saved_connections = self.get_saved_connections().unwrap_or_default();
+        let saved_conn = saved_connections.iter().find(|c| c.ssid == ssid);
 
-        // Re-construct directly for dbus call
-        let mut connection_settings: PropMap = HashMap::new();
-        connection_settings.insert("id".to_string(), Variant(Box::new(ssid.to_string())));
-        connection_settings.insert(
-            "type".to_string(),
-            Variant(Box::new("802-11-wireless".to_string())),
-        );
+        let active_conn_path = if let Some(conn) = saved_conn {
+            // Network is known - use ActivateConnection (no password needed)
+            // Find the specific access point for this SSID
+            let dev_proxy = self
+                .connection
+                .with_proxy(NM_BUS_NAME, &wifi_device_path, Duration::from_secs(5));
 
-        let mut wifi_settings: PropMap = HashMap::new();
-        wifi_settings.insert(
-            "ssid".to_string(),
-            Variant(Box::new(ssid.as_bytes().to_vec())),
-        );
-        wifi_settings.insert(
-            "mode".to_string(),
-            Variant(Box::new("infrastructure".to_string())),
-        );
-
-        final_map.insert("connection", connection_settings);
-        final_map.insert("802-11-wireless", wifi_settings);
-
-        if !password.is_empty() {
-            let mut security_settings: PropMap = HashMap::new();
-            security_settings.insert(
-                "key-mgmt".to_string(),
-                Variant(Box::new("wpa-psk".to_string())),
-            );
-            security_settings.insert("psk".to_string(), Variant(Box::new(password.to_string())));
-            final_map.insert("802-11-wireless-security", security_settings);
-        }
-
-        let specific_object = dbus::Path::new("/").unwrap();
-
-        let (active_conn_path, _) = match nm_proxy.add_and_activate_connection(
-            final_map,
-            wifi_device_path,
-            specific_object,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                // If this fails immediately, it could be due to secrets issues or invalid params
-                let err_str = e.to_string();
-                if err_str.contains("secrets")
-                    || err_str.contains("802-1x")
-                    || err_str.contains("password")
-                {
-                    return Err(anyhow::anyhow!("INCORRECT_PASSWORD"));
+            let mut specific_ap = dbus::Path::new("/").unwrap();
+            if let Ok(aps) = dev_proxy.get_access_points() {
+                for ap_path in aps {
+                    let ap_proxy = self.connection.with_proxy(
+                        NM_BUS_NAME,
+                        &ap_path,
+                        Duration::from_secs(5),
+                    );
+                    if let Ok(ap_ssid) = ap_proxy.ssid() {
+                        let ap_ssid_str = String::from_utf8_lossy(&ap_ssid).to_string();
+                        if ap_ssid_str == ssid {
+                            specific_ap = ap_path;
+                            break;
+                        }
+                    }
                 }
-                return Err(anyhow::anyhow!("Failed to activate: {}", err_str));
             }
+
+            // Create a proxy with a longer timeout for this operation
+            let nm_proxy_long = self
+                .connection
+                .with_proxy(NM_BUS_NAME, NM_PATH, Duration::from_secs(60));
+
+            match nm_proxy_long.method_call::<(dbus::Path,), _, _, _>(
+                "org.freedesktop.NetworkManager",
+                "ActivateConnection",
+                (conn.path.clone(), wifi_device_path.clone(), specific_ap),
+            ) {
+                Ok((active_path,)) => active_path,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // If the connection is already active or activating, that's not really an error
+                    if err_str.contains("AlreadyActive") || err_str.contains("already active") {
+                        // Connection is already active/activating - wait for it to complete
+                        // We need to find the active connection path
+                        // For now, let's just wait and check the device state
+                        std::thread::sleep(Duration::from_millis(500));
+                        return Ok(());
+                    }
+                    return Err(anyhow::anyhow!("Failed to activate: {}", err_str));
+                }
+            }
+        } else {
+            // Network is not known - create new connection with password
+            let mut final_map: HashMap<&str, PropMap> = HashMap::new();
+
+            // Re-construct directly for dbus call
+            let mut connection_settings: PropMap = HashMap::new();
+            connection_settings.insert("id".to_string(), Variant(Box::new(ssid.to_string())));
+            connection_settings.insert(
+                "type".to_string(),
+                Variant(Box::new("802-11-wireless".to_string())),
+            );
+
+            let mut wifi_settings: PropMap = HashMap::new();
+            wifi_settings.insert(
+                "ssid".to_string(),
+                Variant(Box::new(ssid.as_bytes().to_vec())),
+            );
+            wifi_settings.insert(
+                "mode".to_string(),
+                Variant(Box::new("infrastructure".to_string())),
+            );
+
+            final_map.insert("connection", connection_settings);
+            final_map.insert("802-11-wireless", wifi_settings);
+
+            if !password.is_empty() {
+                let mut security_settings: PropMap = HashMap::new();
+                security_settings.insert(
+                    "key-mgmt".to_string(),
+                    Variant(Box::new("wpa-psk".to_string())),
+                );
+                security_settings.insert("psk".to_string(), Variant(Box::new(password.to_string())));
+                final_map.insert("802-11-wireless-security", security_settings);
+            }
+
+            let specific_object = dbus::Path::new("/").unwrap();
+
+            let (active_path, _) = match nm_proxy.add_and_activate_connection(
+                final_map,
+                wifi_device_path,
+                specific_object,
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    // If this fails immediately, it could be due to secrets issues or invalid params
+                    let err_str = e.to_string();
+                    if err_str.contains("secrets")
+                        || err_str.contains("802-1x")
+                        || err_str.contains("password")
+                    {
+                        return Err(anyhow::anyhow!("INCORRECT_PASSWORD"));
+                    }
+                    return Err(anyhow::anyhow!("Failed to activate: {}", err_str));
+                }
+            };
+
+            active_path
         };
 
         // Wait for the connection to reach a final state
@@ -332,11 +482,9 @@ impl NetworkClient {
                     }
                 }
                 Err(_) => {
-                    // Object might not exist anymore - connection might have failed
-                    // Check if we're past a reasonable time
-                    if start.elapsed() > Duration::from_secs(2) {
-                        return Err(anyhow::anyhow!("INCORRECT_PASSWORD"));
-                    }
+                    // Object might not exist yet or might not be accessible
+                    // For known networks, this is common during initial activation
+                    // Continue waiting as long as we haven't timed out
                 }
             }
 

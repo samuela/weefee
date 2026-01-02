@@ -161,6 +161,11 @@ impl App {
                     // If network is active (connected), show disconnect confirmation
                     if net.active {
                         self.input_mode = InputMode::ConfirmDisconnect;
+                    } else if net.known {
+                        // Known network - connect directly without password prompt
+                        self.input_mode = InputMode::Connecting;
+                        let ssid = net.ssid.clone();
+                        self.connecting_ssid = Some(ssid);
                     } else if net.security == "Open" || net.security.contains("WEP/Open") {
                         self.input_mode = InputMode::Editing;
                         self.password_input.reset();

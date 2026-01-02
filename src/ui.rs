@@ -328,10 +328,16 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
 
             let prefix = if i == app.selected_index { "> " } else { "  " };
             let active_marker = if net.active { "*" } else { " " };
+            let known_marker = if net.known { "K" } else { " " };
             let warning = if net.weak_security { " (!)" } else { "" };
+            let priority_str = if let Some(p) = net.priority {
+                format!(" P:{}", p)
+            } else {
+                String::new()
+            };
             let content = format!(
-                "{}{}{} ({}%) [{}{}]",
-                prefix, active_marker, net.ssid, net.strength, net.security, warning
+                "{}{}{}{} ({}%) [{}{}{}]",
+                prefix, active_marker, known_marker, net.ssid, net.strength, net.security, warning, priority_str
             );
             ListItem::new(content).style(style)
         })
