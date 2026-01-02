@@ -395,7 +395,7 @@ impl NetworkClient {
 
             let specific_object = dbus::Path::new("/").unwrap();
 
-            let (active_path, _) = match nm_proxy.add_and_activate_connection(
+            let (connection_path, active_path) = match nm_proxy.add_and_activate_connection(
                 final_map,
                 wifi_device_path,
                 specific_object,
@@ -414,9 +414,27 @@ impl NetworkClient {
                 }
             };
 
-            active_path
+            // Store the connection path so we can delete it if connection fails
+            let new_connection_path = Some(connection_path);
+
+            // Wait for connection and delete profile if it fails
+            let wait_result = self.wait_for_connection_state(
+                &active_path,
+                new_connection_path.as_ref(),
+            );
+
+            return wait_result;
         };
 
+        // Wait for known network connection to complete (no cleanup needed)
+        self.wait_for_connection_state(&active_conn_path, None)
+    }
+
+    fn wait_for_connection_state(
+        &self,
+        active_conn_path: &dbus::Path,
+        new_connection_path: Option<&dbus::Path>,
+    ) -> Result<()> {
         // Wait for the connection to reach a final state
         // Active connection states: 0=Unknown, 1=Activating, 2=Activated, 3=Deactivating, 4=Deactivated
         const NM_ACTIVE_CONNECTION_STATE_UNKNOWN: u32 = 0;
@@ -430,6 +448,12 @@ impl NetworkClient {
 
         loop {
             if start.elapsed() > timeout {
+                // We timed out waiting for connection. If it was a new connection, delete the NetworkManager connection profile so it's not listed as a known network in the future.
+                // Delete the connection profile if this was a new connection that timed out
+                if let Some(conn_path) = new_connection_path {
+                    // TODO: log the error if there's an error here
+                    let _ = self.delete_connection(conn_path);
+                }
                 return Err(anyhow::anyhow!("Connection timeout"));
             }
 
@@ -448,7 +472,13 @@ impl NetworkClient {
                             return Ok(());
                         }
                         NM_ACTIVE_CONNECTION_STATE_DEACTIVATED => {
-                            // Connection failed - get reason if possible
+                            // Connection failed - delete the profile if this was a new connection
+                            if let Some(conn_path) = new_connection_path {
+                                // TODO: log the error if there's an error here
+                                let _ = self.delete_connection(conn_path);
+                            }
+
+                            // Get reason if possible
                             if let Ok(reason) = ac_proxy.get::<u32>(
                                 "org.freedesktop.NetworkManager.Connection.Active",
                                 "StateReason",
@@ -490,6 +520,24 @@ impl NetworkClient {
 
             std::thread::sleep(Duration::from_millis(200));
         }
+    }
+
+    fn delete_connection(&self, connection_path: &dbus::Path) -> Result<()> {
+        let conn_proxy = self.connection.with_proxy(
+            NM_BUS_NAME,
+            connection_path,
+            Duration::from_secs(5),
+        );
+
+        conn_proxy
+            .method_call::<(), _, _, _>(
+                "org.freedesktop.NetworkManager.Settings.Connection",
+                "Delete",
+                (),
+            )
+            .context("Failed to delete connection")?;
+
+        Ok(())
     }
 
     pub fn disconnect(&self) -> Result<()> {
