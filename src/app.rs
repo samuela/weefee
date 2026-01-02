@@ -16,6 +16,11 @@ pub enum Msg {
     EnterInput,
     Input(char),
     Backspace,
+    MoveCursorLeft,
+    MoveCursorRight,
+    MoveCursorWordLeft,
+    MoveCursorWordRight,
+    DeletePrevWord,
     SubmitConnection,
     CancelInput,
     ConnectionSuccess,
@@ -160,6 +165,26 @@ impl App {
             Msg::Backspace => {
                 self.password_input
                     .handle(tui_input::InputRequest::DeletePrevChar);
+            }
+            Msg::MoveCursorLeft => {
+                self.password_input
+                    .handle(tui_input::InputRequest::GoToPrevChar);
+            }
+            Msg::MoveCursorRight => {
+                self.password_input
+                    .handle(tui_input::InputRequest::GoToNextChar);
+            }
+            Msg::MoveCursorWordLeft => {
+                self.password_input
+                    .handle(tui_input::InputRequest::GoToPrevWord);
+            }
+            Msg::MoveCursorWordRight => {
+                self.password_input
+                    .handle(tui_input::InputRequest::GoToNextWord);
+            }
+            Msg::DeletePrevWord => {
+                self.password_input
+                    .handle(tui_input::InputRequest::DeletePrevWord);
             }
             Msg::SubmitConnection => {
                 self.input_mode = InputMode::Connecting;

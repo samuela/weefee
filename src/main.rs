@@ -137,8 +137,36 @@ async fn main() -> Result<()> {
                             KeyCode::Esc => {
                                 let _ = tx_input.blocking_send(Msg::CancelInput);
                             }
+                            KeyCode::Backspace if key.modifiers == KeyModifiers::CONTROL => {
+                                let _ = tx_input.blocking_send(Msg::DeletePrevWord);
+                            }
+                            KeyCode::Backspace if key.modifiers == KeyModifiers::ALT => {
+                                let _ = tx_input.blocking_send(Msg::DeletePrevWord);
+                            }
                             KeyCode::Backspace => {
                                 let _ = tx_input.blocking_send(Msg::Backspace);
+                            }
+                            KeyCode::Left if key.modifiers == KeyModifiers::CONTROL => {
+                                let _ = tx_input.blocking_send(Msg::MoveCursorWordLeft);
+                            }
+                            KeyCode::Left if key.modifiers == KeyModifiers::ALT => {
+                                let _ = tx_input.blocking_send(Msg::MoveCursorWordLeft);
+                            }
+                            KeyCode::Left => {
+                                let _ = tx_input.blocking_send(Msg::MoveCursorLeft);
+                            }
+                            KeyCode::Right if key.modifiers == KeyModifiers::CONTROL => {
+                                let _ = tx_input.blocking_send(Msg::MoveCursorWordRight);
+                            }
+                            KeyCode::Right if key.modifiers == KeyModifiers::ALT => {
+                                let _ = tx_input.blocking_send(Msg::MoveCursorWordRight);
+                            }
+                            KeyCode::Right => {
+                                let _ = tx_input.blocking_send(Msg::MoveCursorRight);
+                            }
+                            KeyCode::Char('h') if key.modifiers == KeyModifiers::CONTROL => {
+                                // Ctrl+Backspace is often interpreted as Ctrl+H in terminals
+                                let _ = tx_input.blocking_send(Msg::DeletePrevWord);
                             }
                             KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
                                 let _ = tx_input.blocking_send(Msg::Quit);
