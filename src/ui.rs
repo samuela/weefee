@@ -17,18 +17,66 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    draw_header(f, app, chunks[0]);
-    draw_network_list(f, app, chunks[1]);
+    let is_dialog_open = !matches!(app.input_mode, InputMode::Normal);
+    draw_header(f, app, chunks[0], is_dialog_open);
+    draw_network_list(f, app, chunks[1], is_dialog_open);
 
     match app.input_mode {
         InputMode::Editing => {
-            // Show error message if present in a separate block above
+            // Get the SSID we're connecting to
+            let ssid = app
+                .networks
+                .get(app.selected_index)
+                .map(|n| n.ssid.as_str())
+                .unwrap_or("Unknown");
+
+            // Calculate base position for all blocks
+            let base_area = centered_rect_fixed(50, 3, f.area());
+            let mut current_y = base_area.y;
+
+            // SSID info block at the top
+            let ssid_block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded);
+            let ssid_area = Rect {
+                x: base_area.x,
+                y: current_y,
+                width: base_area.width,
+                height: 3,
+            };
+            f.render_widget(Clear, ssid_area);
+            f.render_widget(ssid_block, ssid_area);
+
+            let ssid_inner = Rect {
+                x: ssid_area.x + 1,
+                y: ssid_area.y + 1,
+                width: ssid_area.width.saturating_sub(2),
+                height: 1,
+            };
+
+            use ratatui::text::{Line, Span};
+            let ssid_text = Line::from(vec![
+                Span::raw("Connecting to "),
+                Span::styled(ssid, Style::default().fg(Color::Yellow)),
+                Span::raw("..."),
+            ]);
+            let ssid_widget = Paragraph::new(ssid_text);
+            f.render_widget(ssid_widget, ssid_inner);
+
+            current_y += 3;
+
+            // Show error message if present in a separate block
             if let Some(error) = &app.password_error {
                 let error_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
                     .style(Style::default().fg(Color::Red));
-                let error_area = centered_rect_fixed(50, 3, f.area());
+                let error_area = Rect {
+                    x: base_area.x,
+                    y: current_y,
+                    width: base_area.width,
+                    height: 3,
+                };
                 f.render_widget(Clear, error_area);
                 f.render_widget(error_block, error_area);
 
@@ -41,24 +89,20 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 let error_widget =
                     Paragraph::new(error.as_str()).style(Style::default().fg(Color::Red));
                 f.render_widget(error_widget, error_inner);
+
+                current_y += 3;
             }
 
-            // Password input block below (or centered if no error)
+            // Password input block
             let password_block = Block::default()
                 .title("Password")
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded);
-            let password_area = if app.password_error.is_some() {
-                // Position below the error block
-                let base_area = centered_rect_fixed(50, 3, f.area());
-                Rect {
-                    x: base_area.x,
-                    y: base_area.y + 3, // 3 for error block height, no spacing
-                    width: base_area.width,
-                    height: base_area.height,
-                }
-            } else {
-                centered_rect_fixed(50, 3, f.area())
+            let password_area = Rect {
+                x: base_area.x,
+                y: current_y,
+                width: base_area.width,
+                height: 3,
             };
             f.render_widget(Clear, password_area);
             f.render_widget(password_block, password_area);
@@ -179,25 +223,42 @@ fn centered_rect_fixed(width: u16, height: u16, r: Rect) -> Rect {
     }
 }
 
-fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     let active = app.active_ssid.as_deref().unwrap_or("None");
+    let style = if is_dimmed {
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    };
+    let block_style = if is_dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
     let text = Paragraph::new(format!("WeeFee - WiFi Manager | Connected: {}", active))
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded));
+        .style(style)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(block_style),
+        );
     f.render_widget(text, area);
 }
 
-fn draw_network_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_network_list(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     let items: Vec<ListItem> = app
         .networks
         .iter()
         .enumerate()
         .map(|(i, net)| {
-            let style = if i == app.selected_index {
+            let style = if is_dimmed {
+                Style::default().fg(Color::DarkGray)
+            } else if i == app.selected_index {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -218,7 +279,18 @@ fn draw_network_list(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let list = List::new(items).block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title("Networks"));
+    let block_style = if is_dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .title("Networks")
+            .style(block_style),
+    );
 
     // We handle selection manually via style in the list item for simplicity
     // or we could use ListState.
