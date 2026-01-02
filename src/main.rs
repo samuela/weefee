@@ -19,6 +19,7 @@ use network::NetworkClient;
 pub enum NetCmd {
     Scan,
     Connect(String, String), // SSID, Password
+    Disconnect,
 }
 
 #[tokio::main]
@@ -79,6 +80,22 @@ async fn main() -> Result<()> {
                             }
                             Err(e) => {
                                 let _ = tx_net.blocking_send(Msg::ConnectionFailure(e.to_string()));
+                                // Trigger rescan to ensure UI reflects actual state
+                                if let Ok(nets) = client.get_wifi_networks() {
+                                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                }
+                            }
+                        },
+                        NetCmd::Disconnect => match client.disconnect() {
+                            Ok(_) => {
+                                let _ = tx_net.blocking_send(Msg::DisconnectSuccess);
+                                // Trigger rescan to update network list
+                                if let Ok(nets) = client.get_wifi_networks() {
+                                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx_net.blocking_send(Msg::DisconnectFailure(e.to_string()));
                                 // Trigger rescan to ensure UI reflects actual state
                                 if let Ok(nets) = client.get_wifi_networks() {
                                     let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
@@ -197,6 +214,18 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
+                        InputMode::ConfirmDisconnect => match key.code {
+                            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                let _ = tx_input.blocking_send(Msg::SubmitDisconnect);
+                            }
+                            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                                let _ = tx_input.blocking_send(Msg::CancelInput);
+                            }
+                            KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
+                                let _ = tx_input.blocking_send(Msg::Quit);
+                            }
+                            _ => {}
+                        },
                     }
                 }
             } else {
@@ -234,6 +263,10 @@ async fn main() -> Result<()> {
                         app.update(Msg::SubmitConnection);
                         let _ = net_tx.send(NetCmd::Connect(ssid, password)).await;
                     }
+                }
+                Msg::SubmitDisconnect => {
+                    app.update(Msg::SubmitDisconnect);
+                    let _ = net_tx.send(NetCmd::Disconnect).await;
                 }
                 _ => {
                     app.update(msg);

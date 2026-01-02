@@ -26,6 +26,10 @@ pub enum Msg {
     CancelInput,
     ConnectionSuccess,
     ConnectionFailure(String),
+    ConfirmDisconnect,
+    SubmitDisconnect,
+    DisconnectSuccess,
+    DisconnectFailure(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,6 +38,7 @@ pub enum InputMode {
     Editing,
     Connecting,
     Error,
+    ConfirmDisconnect,
 }
 
 pub struct App {
@@ -153,7 +158,10 @@ impl App {
             }
             Msg::EnterInput => {
                 if let Some(net) = self.networks.get(self.selected_index) {
-                    if net.security == "Open" || net.security.contains("WEP/Open") {
+                    // If network is active (connected), show disconnect confirmation
+                    if net.active {
+                        self.input_mode = InputMode::ConfirmDisconnect;
+                    } else if net.security == "Open" || net.security.contains("WEP/Open") {
                         self.input_mode = InputMode::Editing;
                         self.password_input.reset();
                         self.password_error = None;
@@ -225,6 +233,19 @@ impl App {
                     self.password_error = None;
                     self.error_message = Some(format!("Connection failed: {}", error));
                 }
+            }
+            Msg::ConfirmDisconnect => {
+                self.input_mode = InputMode::ConfirmDisconnect;
+            }
+            Msg::SubmitDisconnect => {
+                self.input_mode = InputMode::Normal;
+            }
+            Msg::DisconnectSuccess => {
+                self.input_mode = InputMode::Normal;
+            }
+            Msg::DisconnectFailure(error) => {
+                self.input_mode = InputMode::Error;
+                self.error_message = Some(format!("Disconnect failed: {}", error));
             }
         }
     }

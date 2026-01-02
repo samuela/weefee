@@ -343,6 +343,40 @@ impl NetworkClient {
             std::thread::sleep(Duration::from_millis(200));
         }
     }
+
+    pub fn disconnect(&self) -> Result<()> {
+        let nm_proxy = self
+            .connection
+            .with_proxy(NM_BUS_NAME, NM_PATH, Duration::from_secs(5));
+
+        // Find the WiFi device
+        let device_paths = nm_proxy.get_devices().context("Failed to get devices")?;
+        let mut wifi_device_path = None;
+
+        for dev_path in device_paths {
+            let dev_proxy =
+                self.connection
+                    .with_proxy(NM_BUS_NAME, &dev_path, Duration::from_secs(5));
+            if let Ok(dev_type) = dev_proxy.device_type() {
+                if dev_type == DEVICE_TYPE_WIFI {
+                    wifi_device_path = Some(dev_path);
+                    break;
+                }
+            }
+        }
+
+        let wifi_device_path = wifi_device_path.context("No WiFi device found")?;
+        let dev_proxy = self
+            .connection
+            .with_proxy(NM_BUS_NAME, &wifi_device_path, Duration::from_secs(5));
+
+        // Disconnect the device by calling Disconnect() on the device interface
+        dev_proxy
+            .method_call::<(), _, _, _>("org.freedesktop.NetworkManager.Device", "Disconnect", ())
+            .context("Failed to disconnect")?;
+
+        Ok(())
+    }
 }
 
 fn decode_security(wpa: u32, rsn: u32) -> (String, bool) {

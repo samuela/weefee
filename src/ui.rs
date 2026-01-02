@@ -164,6 +164,49 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             f.render_stateful_widget(throbber, throbber_area, &mut app.throbber_state);
         }
         InputMode::Normal => {}
+        InputMode::ConfirmDisconnect => {
+            let ssid = app
+                .networks
+                .get(app.selected_index)
+                .map(|n| n.ssid.as_str())
+                .unwrap_or("Unknown");
+
+            let block = Block::default()
+                .title("Disconnect")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(Color::Yellow));
+            let area = centered_rect(60, 25, f.area());
+            f.render_widget(Clear, area);
+            f.render_widget(block, area);
+
+            let inner_area = Rect {
+                x: area.x + 1,
+                y: area.y + 1,
+                width: area.width.saturating_sub(2),
+                height: area.height.saturating_sub(2),
+            };
+
+            use ratatui::text::{Line, Span};
+            let message_lines = vec![
+                Line::from(vec![
+                    Span::raw("Disconnect from "),
+                    Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw("?"),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw("es / "),
+                    Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Span::raw("o"),
+                ]),
+            ];
+
+            let message = Paragraph::new(message_lines)
+                .style(Style::default().fg(Color::White));
+            f.render_widget(message, inner_area);
+        }
         InputMode::Error => {
             let error_msg = app.error_message.as_deref().unwrap_or("Unknown error");
             let block = Block::default()
