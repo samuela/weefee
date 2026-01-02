@@ -1,4 +1,4 @@
-use crate::network::WifiInfo;
+use crate::network::{WifiInfo, WifiDeviceInfo};
 use ratatui::widgets::ListState;
 use throbber_widgets_tui::ThrobberState;
 use tui_input::Input;
@@ -11,6 +11,7 @@ pub enum Msg {
     MoveDown,
     Scan,
     NetworksFound(Vec<WifiInfo>),
+    DeviceInfoUpdate(WifiDeviceInfo),
     Error(String),
     DismissError,
     EnterInput,
@@ -42,6 +43,7 @@ pub struct App {
     pub list_state: ListState,
     pub is_scanning: bool,
     pub active_ssid: Option<String>,
+    pub device_info: Option<WifiDeviceInfo>,
     pub input_mode: InputMode,
     pub password_input: Input,
     pub connecting_ssid: Option<String>,
@@ -61,6 +63,7 @@ impl App {
             list_state,
             is_scanning: false,
             active_ssid: None,
+            device_info: None,
             input_mode: InputMode::Normal,
             password_input: Input::default(),
             connecting_ssid: None,
@@ -92,6 +95,9 @@ impl App {
             }
             Msg::Scan => {
                 self.is_scanning = true;
+            }
+            Msg::DeviceInfoUpdate(info) => {
+                self.device_info = Some(info);
             }
             Msg::NetworksFound(networks) => {
                 self.active_ssid = networks.iter().find(|n| n.active).map(|n| n.ssid.clone());

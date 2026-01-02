@@ -44,6 +44,9 @@ async fn main() -> Result<()> {
         match client_res {
             Ok(client) => {
                 // Initial fetch
+                if let Ok(device_info) = client.get_device_info() {
+                    let _ = tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info));
+                }
                 if let Ok(nets) = client.get_wifi_networks() {
                     let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
                 } else {
@@ -52,14 +55,20 @@ async fn main() -> Result<()> {
 
                 while let Some(cmd) = net_rx.blocking_recv() {
                     match cmd {
-                        NetCmd::Scan => match client.get_wifi_networks() {
-                            Ok(nets) => {
-                                let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                        NetCmd::Scan => {
+                            // Update device info on each scan
+                            if let Ok(device_info) = client.get_device_info() {
+                                let _ = tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info));
                             }
-                            Err(e) => {
-                                let _ = tx_net.blocking_send(Msg::Error(e.to_string()));
+                            match client.get_wifi_networks() {
+                                Ok(nets) => {
+                                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                }
+                                Err(e) => {
+                                    let _ = tx_net.blocking_send(Msg::Error(e.to_string()));
+                                }
                             }
-                        },
+                        }
                         NetCmd::Connect(ssid, password) => match client.connect(&ssid, &password) {
                             Ok(_) => {
                                 let _ = tx_net.blocking_send(Msg::ConnectionSuccess);

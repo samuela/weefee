@@ -16,6 +16,13 @@ pub struct WifiInfo {
     pub weak_security: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct WifiDeviceInfo {
+    pub device_count: usize,
+    pub wifi_enabled: bool,
+    pub device_names: Vec<String>,
+}
+
 pub struct NetworkClient {
     connection: Connection,
 }
@@ -28,6 +35,41 @@ impl NetworkClient {
     pub fn new() -> Result<Self> {
         let connection = Connection::new_system().context("Failed to connect to system bus")?;
         Ok(Self { connection })
+    }
+
+    pub fn get_device_info(&self) -> Result<WifiDeviceInfo> {
+        let nm_proxy = self
+            .connection
+            .with_proxy(NM_BUS_NAME, NM_PATH, Duration::from_secs(5));
+
+        // Check if WiFi is enabled globally
+        let wifi_enabled = nm_proxy.wireless_enabled().unwrap_or(false);
+
+        // Get all devices
+        let device_paths = nm_proxy.get_devices().context("Failed to get devices")?;
+        let mut device_names = Vec::new();
+
+        for dev_path in device_paths {
+            let dev_proxy =
+                self.connection
+                    .with_proxy(NM_BUS_NAME, &dev_path, Duration::from_secs(5));
+
+            // TODO: collapse ifs
+            if let Ok(dev_type) = dev_proxy.device_type() {
+                if dev_type == DEVICE_TYPE_WIFI {
+                    // Get device interface name
+                    if let Ok(interface) = dev_proxy.interface() {
+                        device_names.push(interface);
+                    }
+                }
+            }
+        }
+
+        Ok(WifiDeviceInfo {
+            device_count: device_names.len(),
+            wifi_enabled,
+            device_names,
+        })
     }
 
     pub fn get_wifi_networks(&self) -> Result<Vec<WifiInfo>> {

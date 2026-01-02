@@ -224,7 +224,6 @@ fn centered_rect_fixed(width: u16, height: u16, r: Rect) -> Rect {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
-    let active = app.active_ssid.as_deref().unwrap_or("None");
     let style = if is_dimmed {
         Style::default()
             .fg(Color::DarkGray)
@@ -239,7 +238,23 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     } else {
         Style::default()
     };
-    let text = Paragraph::new(format!("WeeFee - WiFi Manager | Connected: {}", active))
+
+    let header_text = if let Some(info) = &app.device_info {
+        // TODO: make the disabled thing a bit louder, eg with emojis or color change
+        let enabled_status = if info.wifi_enabled { "enabled" } else { "disabled" };
+        let devices_str = if info.device_count == 0 {
+            "No WiFi devices".to_string()
+        } else if info.device_count == 1 {
+            format!("Device: {}", info.device_names.get(0).unwrap_or(&"unknown".to_string()))
+        } else {
+            format!("{} devices: {}", info.device_count, info.device_names.join(", "))
+        };
+        format!("WeeFee | {} | WiFi {}", devices_str, enabled_status)
+    } else {
+        "WeeFee | Loading...".to_string()
+    };
+
+    let text = Paragraph::new(header_text)
         .style(style)
         .block(
             Block::default()
