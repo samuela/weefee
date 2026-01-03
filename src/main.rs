@@ -453,7 +453,7 @@ async fn main() -> Result<()> {
             ..
           } = &mut app
           {
-            if *d_pressed {
+            if *show_detailed_view {
               // Only toggle autoconnect for known networks
               if let Some(net) = networks.get(*selected_index) {
                 if net.known {

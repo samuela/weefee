@@ -73,7 +73,6 @@ pub enum App {
     networks: Vec<WifiInfo>,
     selected_index: usize,
     list_state: ListState,
-    is_scanning: bool,
     active_ssid: Option<String>,
     device_info: Option<WifiDeviceInfo>,
     state: AppState,
@@ -90,7 +89,6 @@ impl App {
       networks: Vec::new(),
       selected_index: 0,
       list_state,
-      is_scanning: false,
       active_ssid: None,
       device_info: None,
       state: AppState::Normal,
@@ -109,7 +107,6 @@ impl App {
       networks,
       selected_index,
       list_state,
-      is_scanning,
       active_ssid,
       device_info,
       state,
@@ -154,7 +151,6 @@ impl App {
         }
       }
       Msg::Scan => {
-        *is_scanning = true;
       }
       Msg::DeviceInfoUpdate(info) => {
         *device_info = Some(info);
@@ -166,7 +162,6 @@ impl App {
         let previously_selected_ssid = networks.get(*selected_index).map(|n| n.ssid.clone());
 
         *networks = new_networks;
-        *is_scanning = false;
 
         // Try to find the previously selected network in the new list
         if let Some(ssid) = previously_selected_ssid {
@@ -192,8 +187,7 @@ impl App {
       }
       Msg::Error(e) => {
         *state = AppState::ShowingError { message: e };
-        *is_scanning = false;
-      }
+     }
       Msg::DismissError => {
         *state = AppState::Normal;
       }

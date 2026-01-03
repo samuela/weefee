@@ -16,7 +16,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     networks,
     selected_index,
     list_state,
-    is_scanning: _,
     active_ssid: _,
     device_info,
     state,
