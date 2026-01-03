@@ -149,10 +149,10 @@ impl App {
         // Preserve selection by SSID across rescans
         // TODO: should we use some other kind of network ID?
         // TODO: handle the case where there's not a previously selected network
-        if let Some(ix) = list_state.selected() {
+        if let Some(net) = focused_network {
           // Try to find the previously selected network in the new list
           // TODO: should compare on id here?
-          list_state.select(networks.iter().position(|n| n.ssid == networks[ix].ssid));
+          list_state.select(new_networks.iter().position(|n| n.ssid == net.ssid));
         } else {
           list_state.select_first();
         }
