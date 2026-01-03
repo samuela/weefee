@@ -503,9 +503,11 @@ fn draw_network_list(f: &mut Frame, networks: &[WifiInfo], selected_index: usize
                 _ => "▁▃▅▇ ",
             };
 
-            // Faded style for signal bars and details - always gray regardless of selection
+            // Signal style: yellow when focused, gray otherwise
             let signal_style = if is_dimmed {
                 Style::default().fg(Color::DarkGray)
+            } else if i == selected_index {
+                Style::default().fg(Color::Yellow)
             } else {
                 Style::default().fg(Color::DarkGray)
             };
