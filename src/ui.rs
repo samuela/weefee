@@ -337,6 +337,8 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     let header_text = if let Some(info) = &app.device_info {
         // TODO: make the disabled thing a bit louder, eg with emojis or color change
         let enabled_status = if info.wifi_enabled { "enabled" } else { "disabled" };
+        let connected = app.networks.iter().any(|n| n.active);
+        let connection_status = if connected { "connected" } else { "not connected" };
         let devices_str = if info.device_count == 0 {
             "No WiFi devices".to_string()
         } else if info.device_count == 1 {
@@ -344,7 +346,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
         } else {
             format!("{} devices: {}", info.device_count, info.device_names.join(", "))
         };
-        format!("WeeFee | {} | WiFi {}", devices_str, enabled_status)
+        format!("WeeFee | {} | WiFi {}, {}", devices_str, enabled_status, connection_status)
     } else {
         "WeeFee | Loading...".to_string()
     };
