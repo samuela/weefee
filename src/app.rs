@@ -145,7 +145,6 @@ impl App {
       Msg::NetworksFound(new_networks) => {
         // Preserve selection by SSID across rescans
         // TODO: should we use some other kind of network ID?
-        // TODO: handle the case where there's not a previously selected network
         if let Some(net) = focused_network {
           // Try to find the previously selected network in the new list
           // TODO: should compare on id here?
