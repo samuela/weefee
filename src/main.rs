@@ -332,8 +332,8 @@ async fn main() -> Result<()> {
           AppState::EditingPassword { .. } => AppStateKind::Editing,
           AppState::Connecting { .. } => AppStateKind::Connecting,
           AppState::ShowingError { .. } => AppStateKind::Error,
-          AppState::ConfirmDisconnect => AppStateKind::ConfirmDisconnect,
-          AppState::ConfirmForget => AppStateKind::ConfirmForget,
+          AppState::ConfirmDisconnect { .. } => AppStateKind::ConfirmDisconnect,
+          AppState::ConfirmForget { .. } => AppStateKind::ConfirmForget,
           AppState::ConfirmWeakSecurity { .. } => AppStateKind::ConfirmWeakSecurity,
         },
         App::ShouldQuit => AppStateKind::Normal, // Doesn't matter, we're quitting
@@ -361,32 +361,24 @@ async fn main() -> Result<()> {
             String::new()
           };
 
-          if let App::Running {
-            networks,
-            selected_index,
-            ..
-          } = &app
-          {
-            if let Some(net) = networks.get(*selected_index) {
-              let ssid = net.ssid.clone();
-              app.update(Msg::SubmitConnection);
+          if let Some(net) = app.focused_network() {
+            app.update(Msg::SubmitConnection);
 
-              // If we're now in Connecting mode, it means it's a known insecure network
-              // and we should connect with empty password (stored password will be used)
-              if let App::Running {
-                state: AppState::Connecting {
-                  ssid: connecting_ssid, ..
-                },
-                ..
-              } = &app
-              {
-                let _ = net_tx
-                  .send(NetCmd::Connect(connecting_ssid.clone(), String::new()))
-                  .await;
-              } else {
-                // Otherwise, we're connecting with the entered password
-                let _ = net_tx.send(NetCmd::Connect(ssid, password)).await;
-              }
+            // If we're now in Connecting mode, it means it's a known insecure network
+            // and we should connect with empty password (stored password will be used)
+            if let App::Running {
+              state: AppState::Connecting {
+                ssid: connecting_ssid, ..
+              },
+              ..
+            } = &app
+            {
+              let _ = net_tx
+                .send(NetCmd::Connect(connecting_ssid.clone(), String::new()))
+                .await;
+            } else {
+              // Otherwise, we're connecting with the entered password
+              let _ = net_tx.send(NetCmd::Connect(net.ssid, password)).await;
             }
           }
         }
@@ -397,38 +389,25 @@ async fn main() -> Result<()> {
         Msg::ConfirmForget => {
           // Only show forget dialog if the network is known
           if let App::Running {
-            networks,
-            selected_index,
-            ..
+            networks, list_state, ..
           } = &app
           {
-            if let Some(net) = networks.get(*selected_index) {
-              if net.known {
-                app.update(Msg::ConfirmForget);
-              }
+            if let Some(ix) = list_state.selected()
+              && networks[ix].known
+            {
+              app.update(Msg::ConfirmForget);
             }
           }
         }
         Msg::SubmitForget => {
           // Capture network info before updating app state
-          let network_to_forget = if let App::Running {
-            networks,
-            selected_index,
-            ..
-          } = &app
+          if let Some(net) = app.focused_network()
+            && net.known
           {
-            networks.get(*selected_index).map(|n| (n.ssid.clone(), n.known))
-          } else {
-            None
-          };
+            let _ = net_tx.send(NetCmd::Forget(net.ssid)).await;
+          }
 
           app.update(Msg::SubmitForget);
-
-          if let Some((ssid, is_known)) = network_to_forget {
-            if is_known {
-              let _ = net_tx.send(NetCmd::Forget(ssid)).await;
-            }
-          }
         }
         Msg::EnterInput => {
           app.update(Msg::EnterInput);
@@ -445,30 +424,24 @@ async fn main() -> Result<()> {
         }
         Msg::ToggleAutoconnect => {
           // Only toggle autoconnect when detail view is active
-          if let App::Running {
-            show_detailed_view,
-            networks,
-            selected_index,
-            state,
-            ..
-          } = &mut app
+          if let Some(net) = app.focused_network()
+            && let App::Running {
+              show_detailed_view: true,
+              state,
+              ..
+            } = &mut app
           {
-            if *show_detailed_view {
-              // Only toggle autoconnect for known networks
-              if let Some(net) = networks.get(*selected_index) {
-                if net.known {
-                  let ssid = net.ssid.clone();
-                  app.update(Msg::ToggleAutoconnect);
-                  let _ = net_tx.send(NetCmd::ToggleAutoconnect(ssid)).await;
-                } else {
-                  // Show error if network is not known
-                  *state = AppState::ShowingError {
-                    message: "Cannot toggle auto-connect: network is not saved/known. Connect to it first.".to_string(),
-                  };
-                }
-              }
+            // Only toggle autoconnect for known networks
+            if net.known {
+              let ssid = net.ssid.clone();
+              app.update(Msg::ToggleAutoconnect);
+              let _ = net_tx.send(NetCmd::ToggleAutoconnect(ssid)).await;
+            } else {
+              // Show error if network is not known
+              *state = AppState::ShowingError {
+                message: "Cannot toggle auto-connect: network is not saved/known. Connect to it first.".to_string(),
+              };
             }
-            // If detail view is not active, ignore the key press silently
           }
         }
         _ => {

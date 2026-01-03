@@ -14,7 +14,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
   // Early return if app is quitting
   let App::Running {
     networks,
-    selected_index,
     list_state,
     active_ssid: _,
     device_info,
@@ -36,28 +35,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
   let is_dialog_open = !matches!(state, AppState::Normal);
   draw_header(f, device_info, networks, chunks[0], is_dialog_open);
-  draw_network_list(
-    f,
-    networks,
-    *selected_index,
-    list_state,
-    *show_detailed_view,
-    chunks[1],
-    is_dialog_open,
-  );
+  draw_network_list(f, networks, list_state, *show_detailed_view, chunks[1], is_dialog_open);
   draw_footer(f, chunks[2], is_dialog_open);
 
   match state {
     AppState::EditingPassword {
+      network,
       password_input,
       error_message,
     } => {
-      // Get the SSID we're connecting to
-      let ssid = networks
-        .get(*selected_index)
-        .map(|n| n.ssid.as_str())
-        .unwrap_or("Unknown");
-
       // Calculate base position for all blocks
       let base_area = centered_rect_fixed(50, 3, f.area());
       let mut current_y = base_area.y;
@@ -83,7 +69,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
       use ratatui::text::{Line, Span};
       let ssid_text = Line::from(vec![
         Span::raw("Connecting to "),
-        Span::styled(ssid, Style::default().fg(Color::Yellow)),
+        Span::styled(&network.ssid, Style::default().fg(Color::Yellow)),
         Span::raw("..."),
       ]);
       let ssid_widget = Paragraph::new(ssid_text);
@@ -185,12 +171,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
       f.render_stateful_widget(throbber, throbber_area, throbber_state);
     }
     AppState::Normal => {}
-    AppState::ConfirmDisconnect => {
-      let ssid = networks
-        .get(*selected_index)
-        .map(|n| n.ssid.as_str())
-        .unwrap_or("Unknown");
-
+    AppState::ConfirmDisconnect { network } => {
       let block = Block::default()
         .title("Disconnect")
         .borders(Borders::ALL)
@@ -220,7 +201,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
       let message_lines = vec![Line::from(vec![
         Span::raw("Disconnect from "),
-        Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+          &network.ssid,
+          Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ),
         Span::raw("?"),
       ])];
 
@@ -241,11 +225,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .alignment(ratatui::layout::Alignment::Center);
       f.render_widget(prompt_widget, layout[1]);
     }
-    AppState::ConfirmForget => {
-      let network = networks.get(*selected_index);
-      let ssid = network.map(|n| n.ssid.as_str()).unwrap_or("Unknown");
-      let is_active = network.map(|n| n.active).unwrap_or(false);
-
+    AppState::ConfirmForget { network } => {
       let block = Block::default()
         .title("Forget Network")
         .borders(Borders::ALL)
@@ -276,13 +256,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
       let mut message_lines = vec![
         Line::from(vec![
           Span::raw("Forget network "),
-          Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+          Span::styled(
+            &network.ssid,
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+          ),
           Span::raw("?"),
         ]),
         Line::from(""),
       ];
 
-      if is_active {
+      if network.active {
         message_lines.push(Line::from(
           "This will disconnect and delete the saved password and settings.",
         ));
@@ -307,16 +290,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .alignment(ratatui::layout::Alignment::Center);
       f.render_widget(prompt_widget, layout[1]);
     }
-    AppState::ConfirmWeakSecurity { ssid, security_type } => {
+    AppState::ConfirmWeakSecurity { network } => {
       use ratatui::text::{Line, Span};
       let mut message_lines = vec![];
 
       // Distinguish between no security and weak security
-      if security_type == "Open" {
+      if network.security == "Open" {
         message_lines.push(Line::from(vec![
           Span::raw("Network "),
           Span::styled(
-            ssid.as_str(),
+            network.ssid.as_str(),
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
           ),
           Span::raw(" has "),
@@ -331,18 +314,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         message_lines.push(Line::from(vec![
           Span::raw("Network "),
           Span::styled(
-            ssid.as_str(),
+            network.ssid.as_str(),
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
           ),
           Span::raw(" uses "),
           Span::styled(
-            security_type.as_str(),
+            network.security.as_str(),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
           ),
           Span::raw("."),
         ]));
 
-        if security_type.contains("WEP") {
+        if network.security.contains("WEP") {
           message_lines.push(Line::from(
             "WEP is outdated and can be cracked in minutes. Your data can be easily intercepted by attackers.",
           ));
@@ -363,7 +346,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
       ]));
 
       let block = Block::default()
-        // .title("⚠ Security Warning")
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .style(Style::default().fg(Color::Red));
@@ -522,7 +504,6 @@ fn draw_header(
 fn draw_network_list(
   f: &mut Frame,
   networks: &[WifiInfo],
-  selected_index: usize,
   list_state: &mut ListState,
   show_detailed_view: bool,
   area: Rect,
@@ -534,15 +515,17 @@ fn draw_network_list(
     .iter()
     .enumerate()
     .map(|(i, net)| {
+      let focused = Some(i) == list_state.selected();
+
       let main_style = if is_dimmed {
         Style::default().fg(Color::DarkGray)
-      } else if i == selected_index {
+      } else if focused {
         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
       } else {
         Style::default()
       };
 
-      let prefix = if i == selected_index { "→ " } else { "  " };
+      let prefix = if focused { "→ " } else { "  " };
       // let active_marker = if net.active { "🛜 " } else { "   " };
       // let active_marker = if net.active { "● " } else { "  " };
       // let active_marker = if net.active { "🌐 " } else { "   " };
@@ -559,7 +542,7 @@ fn draw_network_list(
       // Signal style: yellow when focused, gray otherwise
       let signal_style = if is_dimmed {
         Style::default().fg(Color::DarkGray)
-      } else if i == selected_index {
+      } else if focused {
         Style::default().fg(Color::Yellow)
       } else {
         Style::default().fg(Color::DarkGray)

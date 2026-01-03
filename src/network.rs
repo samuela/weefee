@@ -6,6 +6,7 @@ use nmdbus::{NetworkManager, accesspoint::AccessPoint, device::Device, device_wi
 use std::collections::HashMap;
 use std::time::Duration;
 
+#[derive(Debug, Clone)]
 pub struct WifiInfo {
   pub ssid: String,
   pub strength: u8,

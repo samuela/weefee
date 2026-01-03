@@ -3,7 +3,7 @@ use ratatui::widgets::ListState;
 use throbber_widgets_tui::ThrobberState;
 use tui_input::Input;
 
-// TODO: document what each of these are
+// TODO: split this up/come up with a better design
 pub enum Msg {
   Tick,
   Quit,
@@ -48,6 +48,7 @@ pub enum AppState {
   Normal,
   /// Editing password for a network connection
   EditingPassword {
+    network: WifiInfo,
     password_input: Input,
     /// Error message if password was incorrect
     error_message: Option<String>,
@@ -60,18 +61,17 @@ pub enum AppState {
   /// Displaying an error message
   ShowingError { message: String },
   /// Confirming disconnect from active network
-  ConfirmDisconnect,
+  ConfirmDisconnect { network: WifiInfo },
   /// Confirming forgetting a known network
-  ConfirmForget,
+  ConfirmForget { network: WifiInfo },
   /// Confirming connection to a network with weak/no security
-  ConfirmWeakSecurity { ssid: String, security_type: String },
+  ConfirmWeakSecurity { network: WifiInfo },
 }
 
 // TODO: there are still some type-driven design style refactors due here
 pub enum App {
   Running {
     networks: Vec<WifiInfo>,
-    selected_index: usize,
     list_state: ListState,
     active_ssid: Option<String>,
     device_info: Option<WifiDeviceInfo>,
@@ -87,12 +87,20 @@ impl App {
     list_state.select(Some(0));
     Self::Running {
       networks: Vec::new(),
-      selected_index: 0,
       list_state,
       active_ssid: None,
       device_info: None,
       state: AppState::Normal,
       show_detailed_view: false,
+    }
+  }
+
+  pub fn focused_network(&self) -> Option<WifiInfo> {
+    match self {
+      Self::ShouldQuit => None,
+      Self::Running {
+        networks, list_state, ..
+      } => list_state.selected().map(|ix| networks[ix].clone()),
     }
   }
 
@@ -103,9 +111,9 @@ impl App {
     }
 
     // Extract fields from Running variant for processing
+    let focused_network = self.focused_network().clone();
     let App::Running {
       networks,
-      selected_index,
       list_state,
       active_ssid,
       device_info,
@@ -128,30 +136,17 @@ impl App {
       }
       Msg::MoveUp => {
         // If nothing selected, select first network
-        if list_state.selected().is_none() {
-          if !networks.is_empty() {
-            *selected_index = 0;
-            list_state.select(Some(0));
-          }
-        } else if *selected_index > 0 {
-          *selected_index -= 1;
-          list_state.select(Some(*selected_index));
-        }
+        list_state.select_previous();
       }
       Msg::MoveDown => {
-        // If nothing selected, select first network
-        if list_state.selected().is_none() {
-          if !networks.is_empty() {
-            *selected_index = 0;
-            list_state.select(Some(0));
+        match list_state.selected() {
+          Some(ix) if ix == networks.len() - 1 => {
+            // If we're focused on the last element, do nothing. Without this special case pressing down on the last element de-focuses it briefly.
           }
-        } else if *selected_index + 1 < networks.len() {
-          *selected_index += 1;
-          list_state.select(Some(*selected_index));
+          _ => list_state.select_next(),
         }
       }
-      Msg::Scan => {
-      }
+      Msg::Scan => {}
       Msg::DeviceInfoUpdate(info) => {
         *device_info = Some(info);
       }
@@ -159,49 +154,31 @@ impl App {
         *active_ssid = new_networks.iter().find(|n| n.active).map(|n| n.ssid.clone());
 
         // Preserve selection by SSID across rescans
-        let previously_selected_ssid = networks.get(*selected_index).map(|n| n.ssid.clone());
+        // TODO: handle the case where there's not a previously selected network
+        if let Some(ix) = list_state.selected() {
+          // Try to find the previously selected network in the new list
+          // TODO: should compare on id here?
+          list_state.select(networks.iter().position(|n| n.ssid == networks[ix].ssid));
+        } else {
+          list_state.select_first();
+        }
 
         *networks = new_networks;
-
-        // Try to find the previously selected network in the new list
-        if let Some(ssid) = previously_selected_ssid {
-          if let Some(new_index) = networks.iter().position(|n| n.ssid == ssid) {
-            *selected_index = new_index;
-            list_state.select(Some(new_index));
-          } else {
-            // Network disappeared - show error if password dialog was open
-            if matches!(state, AppState::EditingPassword { .. }) {
-              *state = AppState::ShowingError {
-                message: format!("Network \"{}\" is no longer available.", ssid),
-              };
-            }
-
-            // Network disappeared - deselect in all modes
-            *selected_index = 0;
-            list_state.select(None);
-          }
-        } else {
-          *selected_index = 0;
-          list_state.select(None);
-        }
       }
       Msg::Error(e) => {
         *state = AppState::ShowingError { message: e };
-     }
+      }
       Msg::DismissError => {
         *state = AppState::Normal;
       }
       Msg::EnterInput => {
-        if let Some(net) = networks.get(*selected_index) {
+        if let Some(net) = focused_network {
           // If network is active (connected), show disconnect confirmation
           if net.active {
-            *state = AppState::ConfirmDisconnect;
+            *state = AppState::ConfirmDisconnect { network: net };
           } else if net.weak_security {
             // Show warning for insecure networks before connecting (even if known)
-            *state = AppState::ConfirmWeakSecurity {
-              ssid: net.ssid.clone(),
-              security_type: net.security.clone(),
-            };
+            *state = AppState::ConfirmWeakSecurity { network: net };
           } else if net.known {
             // Known secure network - connect directly without password prompt
             *state = AppState::Connecting {
@@ -211,6 +188,7 @@ impl App {
           } else {
             // Unknown secure network - proceed to password input
             *state = AppState::EditingPassword {
+              network: net.clone(),
               password_input: Input::default(),
               error_message: None,
             };
@@ -254,32 +232,29 @@ impl App {
       }
       Msg::SubmitConnection => {
         // If we're in ConfirmWeakSecurity mode, check if network is known
-        if let AppState::ConfirmWeakSecurity { ssid: confirm_ssid, .. } = &*state {
-          if let Some(net) = networks.get(*selected_index) {
-            if net.known {
-              // Known insecure network - connect directly
-              *state = AppState::Connecting {
-                ssid: confirm_ssid.clone(),
-                throbber_state: ThrobberState::default(),
-              };
-            } else {
-              // Unknown insecure network - go to password input
-              *state = AppState::EditingPassword {
-                password_input: Input::default(),
-                error_message: None,
-              };
-            }
+        if let AppState::ConfirmWeakSecurity { network } = &*state {
+          if network.known {
+            // Known insecure network - connect directly
+            *state = AppState::Connecting {
+              ssid: network.ssid.clone(),
+              throbber_state: ThrobberState::default(),
+            };
+          } else {
+            // Unknown insecure network - go to password input
+            *state = AppState::EditingPassword {
+              network: network.clone(),
+              password_input: Input::default(),
+              error_message: None,
+            };
           }
-        } else {
+        } else if let AppState::EditingPassword { network, .. } = &*state {
           // Otherwise, we're submitting from Editing mode, so connect
-          let ssid = networks
-            .get(*selected_index)
-            .map(|n| n.ssid.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
           *state = AppState::Connecting {
-            ssid,
+            ssid: network.ssid.clone(),
             throbber_state: ThrobberState::default(),
           };
+        } else {
+          panic!("this should never happen");
         }
       }
       Msg::CancelInput => {
@@ -289,17 +264,9 @@ impl App {
         *state = AppState::Normal;
       }
       Msg::ConnectionFailure(error) => {
-        // Special handling for password errors - return to password input
-        if error.contains("INCORRECT_PASSWORD") {
-          *state = AppState::EditingPassword {
-            password_input: Input::default(),
-            error_message: Some("Incorrect password. Try again.".to_string()),
-          };
-        } else {
-          *state = AppState::ShowingError {
-            message: format!("Connection failed: {}", error),
-          };
-        }
+        *state = AppState::ShowingError {
+          message: format!("Connection failed: {}", error),
+        };
       }
       Msg::SubmitDisconnect => {
         *state = AppState::Normal;
@@ -313,7 +280,9 @@ impl App {
         };
       }
       Msg::ConfirmForget => {
-        *state = AppState::ConfirmForget;
+        if let Some(net) = focused_network {
+          *state = AppState::ConfirmForget { network: net };
+        }
       }
       Msg::SubmitForget => {
         *state = AppState::Normal;
