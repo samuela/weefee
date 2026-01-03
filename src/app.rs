@@ -48,8 +48,6 @@ pub enum AppState {
   EditingPassword {
     network: WifiInfo,
     password_input: Input,
-    /// Error message if password was incorrect
-    error_message: Option<String>,
   },
   /// Currently connecting to a network
   Connecting {
@@ -180,7 +178,6 @@ impl App {
             *state = AppState::EditingPassword {
               network: net.clone(),
               password_input: Input::default(),
-              error_message: None,
             };
           }
         }
@@ -234,7 +231,6 @@ impl App {
             *state = AppState::EditingPassword {
               network: network.clone(),
               password_input: Input::default(),
-              error_message: None,
             };
           }
         } else if let AppState::EditingPassword { network, .. } = &*state {

@@ -41,7 +41,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     AppState::EditingPassword {
       network,
       password_input,
-      error_message,
     } => {
       // Calculate base position for all blocks
       let base_area = centered_rect_fixed(50, 3, f.area());
@@ -75,33 +74,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
       f.render_widget(ssid_widget, ssid_inner);
 
       current_y += 3;
-
-      // Show error message if present in a separate block
-      if let Some(error) = error_message {
-        let error_block = Block::default()
-          .borders(Borders::ALL)
-          .border_type(BorderType::Rounded)
-          .style(Style::default().fg(Color::Red));
-        let error_area = Rect {
-          x: base_area.x,
-          y: current_y,
-          width: base_area.width,
-          height: 3,
-        };
-        f.render_widget(Clear, error_area);
-        f.render_widget(error_block, error_area);
-
-        let error_inner = Rect {
-          x: error_area.x + 1,
-          y: error_area.y + 1,
-          width: error_area.width.saturating_sub(2),
-          height: 1,
-        };
-        let error_widget = Paragraph::new(error.as_str()).style(Style::default().fg(Color::Red));
-        f.render_widget(error_widget, error_inner);
-
-        current_y += 3;
-      }
 
       // Password input block
       let password_block = Block::default()
