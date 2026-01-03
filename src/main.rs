@@ -73,60 +73,44 @@ async fn main() -> Result<()> {
     while let Some(cmd) = net_rx.blocking_recv() {
       match cmd {
         NetCmd::Scan => {
-          // Update device info on each scan
-          rescan();
+          // We rescan after this match block
         }
         NetCmd::Connect(ssid, password) => match client.connect(&ssid, &password) {
           Ok(_) => {
             tx_net.blocking_send(Msg::ConnectionSuccess).unwrap();
-            // Trigger rescan to update network list with the new active connection
-            rescan();
           }
           Err(e) => {
             tx_net.blocking_send(Msg::ConnectionFailure(e)).unwrap();
-            // Trigger rescan to ensure UI reflects actual state
-            rescan();
           }
         },
         NetCmd::Disconnect => match client.disconnect() {
           Ok(_) => {
             tx_net.blocking_send(Msg::DisconnectSuccess).unwrap();
-            // Trigger rescan to update network list
-            rescan();
           }
           Err(e) => {
             tx_net.blocking_send(Msg::DisconnectFailure(e)).unwrap();
-            // Trigger rescan to ensure UI reflects actual state
-            rescan();
           }
         },
         NetCmd::Forget(ssid) => match client.forget_network(&ssid) {
           Ok(_) => {
             tx_net.blocking_send(Msg::ForgetSuccess).unwrap();
-            // Trigger rescan to update network list
-            rescan();
           }
           Err(e) => {
             tx_net.blocking_send(Msg::ForgetFailure(e)).unwrap();
-            // Trigger rescan to ensure UI reflects actual state
-            rescan();
           }
         },
-        NetCmd::ToggleAutoconnect(ssid) => {
-          match client.toggle_autoconnect(&ssid) {
-            Ok(_) => {
-              tx_net.blocking_send(Msg::AutoconnectSuccess).unwrap();
-              // Trigger rescan to update network list with new autoconnect status
-              rescan();
-            }
-            Err(e) => {
-              tx_net.blocking_send(Msg::AutoconnectFailure(e)).unwrap();
-              // Trigger rescan to ensure UI reflects actual state
-              rescan();
-            }
+        NetCmd::ToggleAutoconnect(ssid) => match client.toggle_autoconnect(&ssid) {
+          Ok(_) => {
+            tx_net.blocking_send(Msg::AutoconnectSuccess).unwrap();
           }
-        }
+          Err(e) => {
+            tx_net.blocking_send(Msg::AutoconnectFailure(e)).unwrap();
+          }
+        },
       }
+
+      // Rescan networks after sending messages to get the latest NetworkManager state.
+      rescan();
     }
   });
 
@@ -277,10 +261,8 @@ async fn main() -> Result<()> {
             },
           }
         }
-      } else {
-        if tx_input.blocking_send(Msg::Tick).is_err() {
-          break;
-        }
+      } else if tx_input.blocking_send(Msg::Tick).is_err() {
+        break;
       }
     }
   });
@@ -339,7 +321,10 @@ async fn main() -> Result<()> {
               ..
             } = &app
             {
-              net_tx.send(NetCmd::Connect(network.ssid.clone(), String::new())).await.unwrap();
+              net_tx
+                .send(NetCmd::Connect(network.ssid.clone(), String::new()))
+                .await
+                .unwrap();
             }
           }
         }
@@ -349,15 +334,10 @@ async fn main() -> Result<()> {
         }
         Msg::ConfirmForget => {
           // Only show forget dialog if the network is known
-          if let App::Running {
-            networks, list_state, ..
-          } = &app
+          if let Some(net) = app.focused_network()
+            && net.known
           {
-            if let Some(ix) = list_state.selected()
-              && networks[ix].known
-            {
-              app.update(Msg::ConfirmForget);
-            }
+            app.update(Msg::ConfirmForget);
           }
         }
         Msg::SubmitForget => {
@@ -380,7 +360,10 @@ async fn main() -> Result<()> {
           } = &app
           {
             // Empty password for known networks (stored password will be used)
-            net_tx.send(NetCmd::Connect(network.ssid.clone(), String::new())).await.unwrap();
+            net_tx
+              .send(NetCmd::Connect(network.ssid.clone(), String::new()))
+              .await
+              .unwrap();
           }
         }
         Msg::ToggleAutoconnect => {
