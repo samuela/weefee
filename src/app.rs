@@ -77,7 +77,7 @@ pub enum App {
     active_ssid: Option<String>,
     device_info: Option<WifiDeviceInfo>,
     state: AppState,
-    d_pressed: bool,
+    show_detailed_view: bool,
   },
   ShouldQuit,
 }
@@ -94,7 +94,7 @@ impl App {
       active_ssid: None,
       device_info: None,
       state: AppState::Normal,
-      d_pressed: false,
+      show_detailed_view: false,
     }
   }
 
@@ -113,7 +113,7 @@ impl App {
       active_ssid,
       device_info,
       state,
-      d_pressed,
+      show_detailed_view: d_pressed,
     } = self
     else {
       return;

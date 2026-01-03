@@ -446,7 +446,7 @@ async fn main() -> Result<()> {
         Msg::ToggleAutoconnect => {
           // Only toggle autoconnect when detail view is active (d_pressed)
           if let App::Running {
-            d_pressed,
+            show_detailed_view,
             networks,
             selected_index,
             state,

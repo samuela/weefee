@@ -20,7 +20,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     active_ssid: _,
     device_info,
     state,
-    d_pressed,
+    show_detailed_view: d_pressed,
   } = app
   else {
     return;
