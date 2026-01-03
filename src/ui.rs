@@ -19,7 +19,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     active_ssid: _,
     device_info,
     state,
-    show_detailed_view: d_pressed,
+    show_detailed_view,
   } = app
   else {
     return;
@@ -41,7 +41,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     networks,
     *selected_index,
     list_state,
-    *d_pressed,
+    *show_detailed_view,
     chunks[1],
     is_dialog_open,
   );
@@ -524,7 +524,7 @@ fn draw_network_list(
   networks: &[WifiInfo],
   selected_index: usize,
   list_state: &mut ListState,
-  d_pressed: bool,
+  show_detailed_view: bool,
   area: Rect,
   is_dimmed: bool,
 ) {
@@ -570,7 +570,7 @@ fn draw_network_list(
         Style::default().fg(Color::DarkGray)
       };
 
-      if d_pressed {
+      if show_detailed_view {
         // Multi-line format: network name on first line, details on subsequent lines
         let mut lines = vec![
           // First line: prefix, active marker, signal, and SSID

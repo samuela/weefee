@@ -110,7 +110,7 @@ impl App {
       active_ssid,
       device_info,
       state,
-      show_detailed_view: d_pressed,
+      show_detailed_view,
     } = self
     else {
       return;
@@ -327,7 +327,7 @@ impl App {
         };
       }
       Msg::DPressed => {
-        *d_pressed = !*d_pressed;
+        *show_detailed_view = !*show_detailed_view;
       }
       Msg::ToggleAutoconnect => {
         // No-op in app state - handled by network layer
