@@ -472,6 +472,17 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
             // let active_marker = if net.active { "🌐 " } else { "   " };
             let active_marker = if net.active { "🔗 " } else { "   " };
 
+            // Signal strength indicator (always shown)
+            let signal_indicator = match net.strength {
+                0..=25 => "▁    ",
+                26..=50 => "▁▃   ",
+                51..=75 => "▁▃▅  ",
+                _ => "▁▃▅▇ ",
+            };
+
+            // Faded style for signal bars
+            let signal_style = Style::default().fg(Color::DarkGray);
+
             let content = if app.d_pressed {
                 // Show signal strength and security when 'd' is pressed
                 let warning = if net.weak_security { " (!)" } else { "" };
@@ -485,15 +496,18 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 // Create styled line with dimmed details
                 let detail_style = Style::default().fg(Color::DarkGray);
                 Line::from(vec![
-                    Span::styled(format!("{}{}{}", prefix, active_marker, net.ssid), main_style),
+                    Span::styled(format!("{}{}", prefix, active_marker), main_style),
+                    Span::styled(signal_indicator, signal_style),
+                    Span::styled(net.ssid.clone(), main_style),
                     Span::styled(format!(" ({}%) [{}{}{}]{}", net.strength, net.security, warning, priority_str, known_str), detail_style),
                 ])
             } else {
-                // Hide signal strength and security details when 'd' is not pressed
-                Line::from(Span::styled(
-                    format!("{}{}{}", prefix, active_marker, net.ssid),
-                    main_style
-                ))
+                // Show signal strength indicator between link emoji and SSID
+                Line::from(vec![
+                    Span::styled(format!("{}{}", prefix, active_marker), main_style),
+                    Span::styled(signal_indicator, signal_style),
+                    Span::styled(net.ssid.clone(), main_style),
+                ])
             };
             ListItem::new(content)
         })
