@@ -15,7 +15,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
   let App::Running {
     networks,
     list_state,
-    active_ssid: _,
     device_info,
     state,
     show_detailed_view,

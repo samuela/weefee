@@ -73,7 +73,6 @@ pub enum App {
   Running {
     networks: Vec<WifiInfo>,
     list_state: ListState,
-    active_ssid: Option<String>,
     device_info: Option<WifiDeviceInfo>,
     state: AppState,
     show_detailed_view: bool,
@@ -88,7 +87,6 @@ impl App {
     Self::Running {
       networks: Vec::new(),
       list_state,
-      active_ssid: None,
       device_info: None,
       state: AppState::Normal,
       show_detailed_view: false,
@@ -115,7 +113,6 @@ impl App {
     let App::Running {
       networks,
       list_state,
-      active_ssid,
       device_info,
       state,
       show_detailed_view,
@@ -151,9 +148,8 @@ impl App {
         *device_info = Some(info);
       }
       Msg::NetworksFound(new_networks) => {
-        *active_ssid = new_networks.iter().find(|n| n.active).map(|n| n.ssid.clone());
-
         // Preserve selection by SSID across rescans
+        // TODO: should we use some other kind of network ID?
         // TODO: handle the case where there's not a previously selected network
         if let Some(ix) = list_state.selected() {
           // Try to find the previously selected network in the new list
