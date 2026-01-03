@@ -9,7 +9,6 @@ pub enum Msg {
   Quit,
   MoveUp,
   MoveDown,
-  Scan,
   NetworksFound(Vec<WifiInfo>),
   DeviceInfoUpdate(WifiDeviceInfo),
   Error(String),
@@ -143,7 +142,6 @@ impl App {
           _ => list_state.select_next(),
         }
       }
-      Msg::Scan => {}
       Msg::DeviceInfoUpdate(info) => {
         *device_info = Some(info);
       }

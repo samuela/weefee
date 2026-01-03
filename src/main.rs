@@ -161,12 +161,12 @@ async fn main() -> Result<()> {
   });
 
   // Auto-refresh Task - refresh data every second
-  let tx_refresh = tx.clone();
+  let net_tx_refresh = net_tx.clone();
   tokio::spawn(async move {
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     loop {
       interval.tick().await;
-      if tx_refresh.send(Msg::Scan).await.is_err() {
+      if net_tx_refresh.send(NetCmd::Scan).await.is_err() {
         break;
       }
     }
@@ -199,9 +199,6 @@ async fn main() -> Result<()> {
               }
               KeyCode::Char('k') | KeyCode::Up => {
                 let _ = tx_input.blocking_send(Msg::MoveUp);
-              }
-              KeyCode::Char('r') | KeyCode::Char('s') => {
-                let _ = tx_input.blocking_send(Msg::Scan);
               }
               KeyCode::Enter => {
                 let _ = tx_input.blocking_send(Msg::EnterInput);
@@ -344,10 +341,6 @@ async fn main() -> Result<()> {
       match msg {
         Msg::Quit => {
           app = App::ShouldQuit;
-        }
-        Msg::Scan => {
-          app.update(Msg::Scan); // Update UI state
-          let _ = net_tx.send(NetCmd::Scan).await;
         }
         Msg::SubmitConnection => {
           // Capture password before updating state
