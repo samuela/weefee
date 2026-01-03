@@ -404,10 +404,27 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         height: area.height.saturating_sub(2),
       };
 
-      let error_display = Paragraph::new(format!("{}\n\nPress Enter or Esc to dismiss.", message))
+      use ratatui::text::Line;
+
+      // Split inner area: message area (flexible) and dismiss text at bottom (1 line)
+      let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+          Constraint::Min(0),    // Message area
+          Constraint::Length(2), // Blank line + dismiss text
+        ])
+        .split(inner_area);
+
+      let error_display = Paragraph::new(message.as_str())
         .style(Style::default().fg(Color::White))
         .wrap(Wrap { trim: true });
-      f.render_widget(error_display, inner_area);
+      f.render_widget(error_display, layout[0]);
+
+      // Render dismiss text at bottom, centered
+      let dismiss_text = Paragraph::new(vec![Line::from(""), Line::from("Enter or Esc to dismiss")])
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(ratatui::layout::Alignment::Center);
+      f.render_widget(dismiss_text, layout[1]);
     }
   }
 }
