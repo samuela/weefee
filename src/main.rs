@@ -61,12 +61,12 @@ async fn main() -> Result<()> {
       Ok(client) => {
         // Initial fetch
         if let Ok(device_info) = client.get_device_info() {
-          let _ = tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info));
+          tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info)).unwrap();
         }
         if let Ok(nets) = client.get_wifi_networks() {
-          let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+          tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
         } else {
-          let _ = tx_net.blocking_send(Msg::Error("Failed initial scan".into()));
+          tx_net.blocking_send(Msg::Error("Failed initial scan".into())).unwrap();
         }
 
         while let Some(cmd) = net_rx.blocking_recv() {
@@ -74,79 +74,79 @@ async fn main() -> Result<()> {
             NetCmd::Scan => {
               // Update device info on each scan
               if let Ok(device_info) = client.get_device_info() {
-                let _ = tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info));
+                tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info)).unwrap();
               }
               match client.get_wifi_networks() {
                 Ok(nets) => {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
                 Err(e) => {
-                  let _ = tx_net.blocking_send(Msg::Error(e.to_string()));
+                  tx_net.blocking_send(Msg::Error(e.to_string())).unwrap();
                 }
               }
             }
             NetCmd::Connect(ssid, password) => match client.connect(&ssid, &password) {
               Ok(_) => {
-                let _ = tx_net.blocking_send(Msg::ConnectionSuccess);
+                tx_net.blocking_send(Msg::ConnectionSuccess).unwrap();
                 // Trigger rescan to update network list with the new active connection
                 if let Ok(nets) = client.get_wifi_networks() {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
               }
               Err(e) => {
-                let _ = tx_net.blocking_send(Msg::ConnectionFailure(e));
+                tx_net.blocking_send(Msg::ConnectionFailure(e)).unwrap();
                 // Trigger rescan to ensure UI reflects actual state
                 if let Ok(nets) = client.get_wifi_networks() {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
               }
             },
             NetCmd::Disconnect => match client.disconnect() {
               Ok(_) => {
-                let _ = tx_net.blocking_send(Msg::DisconnectSuccess);
+                tx_net.blocking_send(Msg::DisconnectSuccess).unwrap();
                 // Trigger rescan to update network list
                 if let Ok(nets) = client.get_wifi_networks() {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
               }
               Err(e) => {
-                let _ = tx_net.blocking_send(Msg::DisconnectFailure(e.to_string()));
+                tx_net.blocking_send(Msg::DisconnectFailure(e.to_string())).unwrap();
                 // Trigger rescan to ensure UI reflects actual state
                 if let Ok(nets) = client.get_wifi_networks() {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
               }
             },
             NetCmd::Forget(ssid) => match client.forget_network(&ssid) {
               Ok(_) => {
-                let _ = tx_net.blocking_send(Msg::ForgetSuccess);
+                tx_net.blocking_send(Msg::ForgetSuccess).unwrap();
                 // Trigger rescan to update network list
                 if let Ok(nets) = client.get_wifi_networks() {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
               }
               Err(e) => {
-                let _ = tx_net.blocking_send(Msg::ForgetFailure(e.to_string()));
+                tx_net.blocking_send(Msg::ForgetFailure(e.to_string())).unwrap();
                 // Trigger rescan to ensure UI reflects actual state
                 if let Ok(nets) = client.get_wifi_networks() {
-                  let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                 }
               }
             },
             NetCmd::ToggleAutoconnect(ssid) => {
               match client.toggle_autoconnect(&ssid) {
                 Ok(_) => {
-                  let _ = tx_net.blocking_send(Msg::AutoconnectSuccess);
+                  tx_net.blocking_send(Msg::AutoconnectSuccess).unwrap();
                   // Trigger rescan to update network list with new autoconnect status
                   if let Ok(nets) = client.get_wifi_networks() {
-                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                    tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                   }
                 }
                 Err(e) => {
-                  let _ = tx_net.blocking_send(Msg::AutoconnectFailure(e.to_string()));
+                  tx_net.blocking_send(Msg::AutoconnectFailure(e.to_string())).unwrap();
                   // Trigger rescan to ensure UI reflects actual state
                   if let Ok(nets) = client.get_wifi_networks() {
-                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                    tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
                   }
                 }
               }
@@ -155,7 +155,9 @@ async fn main() -> Result<()> {
         }
       }
       Err(e) => {
-        let _ = tx_net.blocking_send(Msg::Error(format!("Failed to init NM: {}", e)));
+        tx_net
+          .blocking_send(Msg::Error(format!("Failed to init NM: {}", e)))
+          .unwrap();
       }
     }
   });
@@ -186,74 +188,74 @@ async fn main() -> Result<()> {
           match mode {
             AppStateKind::Normal => match key.code {
               KeyCode::Char('d') => {
-                let _ = tx_input.blocking_send(Msg::DPressed);
+                tx_input.blocking_send(Msg::DPressed).unwrap();
               }
               KeyCode::Char('q') => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               KeyCode::Char('j') | KeyCode::Down => {
-                let _ = tx_input.blocking_send(Msg::MoveDown);
+                tx_input.blocking_send(Msg::MoveDown).unwrap();
               }
               KeyCode::Char('k') | KeyCode::Up => {
-                let _ = tx_input.blocking_send(Msg::MoveUp);
+                tx_input.blocking_send(Msg::MoveUp).unwrap();
               }
               KeyCode::Enter => {
-                let _ = tx_input.blocking_send(Msg::EnterInput);
+                tx_input.blocking_send(Msg::EnterInput).unwrap();
               }
               KeyCode::Char('f') => {
-                let _ = tx_input.blocking_send(Msg::ConfirmForget);
+                tx_input.blocking_send(Msg::ConfirmForget).unwrap();
               }
               KeyCode::Char('a') | KeyCode::Char('A') => {
-                let _ = tx_input.blocking_send(Msg::ToggleAutoconnect);
+                tx_input.blocking_send(Msg::ToggleAutoconnect).unwrap();
               }
               _ => {}
             },
             AppStateKind::Editing => match key.code {
               KeyCode::Enter => {
-                let _ = tx_input.blocking_send(Msg::SubmitConnection);
+                tx_input.blocking_send(Msg::SubmitConnection).unwrap();
               }
               KeyCode::Esc => {
-                let _ = tx_input.blocking_send(Msg::CancelInput);
+                tx_input.blocking_send(Msg::CancelInput).unwrap();
               }
               KeyCode::Backspace if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::DeletePrevWord);
+                tx_input.blocking_send(Msg::DeletePrevWord).unwrap();
               }
               KeyCode::Backspace if key.modifiers == KeyModifiers::ALT => {
-                let _ = tx_input.blocking_send(Msg::DeletePrevWord);
+                tx_input.blocking_send(Msg::DeletePrevWord).unwrap();
               }
               KeyCode::Backspace => {
-                let _ = tx_input.blocking_send(Msg::Backspace);
+                tx_input.blocking_send(Msg::Backspace).unwrap();
               }
               KeyCode::Left if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::MoveCursorWordLeft);
+                tx_input.blocking_send(Msg::MoveCursorWordLeft).unwrap();
               }
               KeyCode::Left if key.modifiers == KeyModifiers::ALT => {
-                let _ = tx_input.blocking_send(Msg::MoveCursorWordLeft);
+                tx_input.blocking_send(Msg::MoveCursorWordLeft).unwrap();
               }
               KeyCode::Left => {
-                let _ = tx_input.blocking_send(Msg::MoveCursorLeft);
+                tx_input.blocking_send(Msg::MoveCursorLeft).unwrap();
               }
               KeyCode::Right if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::MoveCursorWordRight);
+                tx_input.blocking_send(Msg::MoveCursorWordRight).unwrap();
               }
               KeyCode::Right if key.modifiers == KeyModifiers::ALT => {
-                let _ = tx_input.blocking_send(Msg::MoveCursorWordRight);
+                tx_input.blocking_send(Msg::MoveCursorWordRight).unwrap();
               }
               KeyCode::Right => {
-                let _ = tx_input.blocking_send(Msg::MoveCursorRight);
+                tx_input.blocking_send(Msg::MoveCursorRight).unwrap();
               }
               KeyCode::Char('h') if key.modifiers == KeyModifiers::CONTROL => {
                 // Ctrl+Backspace is often interpreted as Ctrl+H in terminals
-                let _ = tx_input.blocking_send(Msg::DeletePrevWord);
+                tx_input.blocking_send(Msg::DeletePrevWord).unwrap();
               }
               KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               KeyCode::Char(c) => {
-                let _ = tx_input.blocking_send(Msg::Input(c));
+                tx_input.blocking_send(Msg::Input(c)).unwrap();
               }
               _ => {}
             },
@@ -262,46 +264,46 @@ async fn main() -> Result<()> {
             }
             AppStateKind::Error => match key.code {
               KeyCode::Enter | KeyCode::Esc => {
-                let _ = tx_input.blocking_send(Msg::DismissError);
+                tx_input.blocking_send(Msg::DismissError).unwrap();
               }
               KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               _ => {}
             },
             AppStateKind::ConfirmDisconnect => match key.code {
               KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let _ = tx_input.blocking_send(Msg::SubmitDisconnect);
+                tx_input.blocking_send(Msg::SubmitDisconnect).unwrap();
               }
               KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                let _ = tx_input.blocking_send(Msg::CancelInput);
+                tx_input.blocking_send(Msg::CancelInput).unwrap();
               }
               KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               _ => {}
             },
             AppStateKind::ConfirmForget => match key.code {
               KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let _ = tx_input.blocking_send(Msg::SubmitForget);
+                tx_input.blocking_send(Msg::SubmitForget).unwrap();
               }
               KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                let _ = tx_input.blocking_send(Msg::CancelInput);
+                tx_input.blocking_send(Msg::CancelInput).unwrap();
               }
               KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               _ => {}
             },
             AppStateKind::ConfirmWeakSecurity => match key.code {
               KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                let _ = tx_input.blocking_send(Msg::SubmitConnection);
+                tx_input.blocking_send(Msg::SubmitConnection).unwrap();
               }
               KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                let _ = tx_input.blocking_send(Msg::CancelInput);
+                tx_input.blocking_send(Msg::CancelInput).unwrap();
               }
               KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
-                let _ = tx_input.blocking_send(Msg::Quit);
+                tx_input.blocking_send(Msg::Quit).unwrap();
               }
               _ => {}
             },
@@ -363,19 +365,19 @@ async fn main() -> Result<()> {
             // Otherwise (known network or weak security confirmation), use empty password
             // (NetworkManager will use the stored credentials)
             if was_editing {
-              let _ = net_tx.send(NetCmd::Connect(net.ssid, password)).await;
+              net_tx.send(NetCmd::Connect(net.ssid, password)).await.unwrap();
             } else if let App::Running {
               state: AppState::Connecting { ssid, .. },
               ..
             } = &app
             {
-              let _ = net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await;
+              net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await.unwrap();
             }
           }
         }
         Msg::SubmitDisconnect => {
           app.update(Msg::SubmitDisconnect);
-          let _ = net_tx.send(NetCmd::Disconnect).await;
+          net_tx.send(NetCmd::Disconnect).await.unwrap();
         }
         Msg::ConfirmForget => {
           // Only show forget dialog if the network is known
@@ -395,7 +397,7 @@ async fn main() -> Result<()> {
           if let Some(net) = app.focused_network()
             && net.known
           {
-            let _ = net_tx.send(NetCmd::Forget(net.ssid)).await;
+            net_tx.send(NetCmd::Forget(net.ssid)).await.unwrap();
           }
 
           app.update(Msg::SubmitForget);
@@ -410,7 +412,7 @@ async fn main() -> Result<()> {
           } = &app
           {
             // Empty password for known networks (stored password will be used)
-            let _ = net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await;
+            net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await.unwrap();
           }
         }
         Msg::ToggleAutoconnect => {
@@ -426,7 +428,7 @@ async fn main() -> Result<()> {
             if net.known {
               let ssid = net.ssid.clone();
               app.update(Msg::ToggleAutoconnect);
-              let _ = net_tx.send(NetCmd::ToggleAutoconnect(ssid)).await;
+              net_tx.send(NetCmd::ToggleAutoconnect(ssid)).await.unwrap();
             } else {
               // Show error if network is not known
               *state = AppState::ShowingError {
