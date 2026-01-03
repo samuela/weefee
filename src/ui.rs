@@ -240,9 +240,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             ];
 
             if is_active {
-                message_lines.push(Line::from("This will disconnect and remove the saved password and settings."));
+                message_lines.push(Line::from("This will disconnect and delete the saved password and settings."));
             } else {
-                message_lines.push(Line::from("This will remove the saved password and settings."));
+                message_lines.push(Line::from("This will delete the saved password and settings."));
             }
 
             message_lines.push(Line::from(""));
@@ -501,56 +501,88 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 _ => "▁▃▅▇ ",
             };
 
-            // Faded style for signal bars
-            let signal_style = Style::default().fg(Color::DarkGray);
-
-            let content = if app.d_pressed {
-                // Show signal strength and security when 'd' is pressed
-                let warning = if net.weak_security { " (!)" } else { "" };
-                let priority_str = if let Some(p) = net.priority {
-                    format!(" P:{}", p)
-                } else {
-                    String::new()
-                };
-                let known_str = if net.known { " known" } else { "" };
-
-                // Add autoconnect settings (only shown for known networks)
-                let autoconnect_str = if net.known {
-                    match net.autoconnect {
-                        Some(true) => " AC:on".to_string(),
-                        Some(false) => " AC:off".to_string(),
-                        None => " AC:default".to_string(), // NM defaults to true
-                    }
-                } else {
-                    String::new()
-                };
-
-                let autoconnect_retries_str = if net.known {
-                    match net.autoconnect_retries {
-                        Some(r) => format!(" ACR:{}", r),
-                        None => " ACR:default".to_string(), // NM defaults to -1 (infinite)
-                    }
-                } else {
-                    String::new()
-                };
-
-                // Create styled line with dimmed details
-                let detail_style = Style::default().fg(Color::DarkGray);
-                Line::from(vec![
-                    Span::styled(format!("{}{}", prefix, active_marker), main_style),
-                    Span::styled(signal_indicator, signal_style),
-                    Span::styled(net.ssid.clone(), main_style),
-                    Span::styled(format!(" ({}%) [{}{}{}{}{}]{}", net.strength, net.security, warning, priority_str, autoconnect_str, autoconnect_retries_str, known_str), detail_style),
-                ])
+            // Faded style for signal bars and details - always gray regardless of selection
+            let signal_style = if is_dimmed {
+                Style::default().fg(Color::DarkGray)
             } else {
-                // Show signal strength indicator between link emoji and SSID
-                Line::from(vec![
+                Style::default().fg(Color::DarkGray)
+            };
+            let detail_style = if is_dimmed {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            if app.d_pressed {
+                // Multi-line format: network name on first line, details on subsequent lines
+                let mut lines = vec![
+                    // First line: prefix, active marker, signal, and SSID
+                    Line::from(vec![
+                        Span::styled(format!("{}{}", prefix, active_marker), main_style),
+                        Span::styled(signal_indicator, signal_style),
+                        Span::styled(net.ssid.clone(), main_style),
+                    ])
+                ];
+
+                // Build details for second line
+                let mut detail_parts = vec![];
+
+                // Signal strength percentage
+                detail_parts.push(format!("signal: {}%", net.strength));
+
+                // Security with warning if weak
+                let warning = if net.weak_security { " (⚠ weak)" } else { "" };
+                detail_parts.push(format!("security: {}{}", net.security, warning));
+
+                // Known status
+                if net.known {
+                    detail_parts.push("known network (F to forget)".to_string());
+                }
+
+                // Second line: basic details (always gray, no highlight)
+                let detail_indent = Span::styled("          ", detail_style);
+                lines.push(Line::from(vec![
+                    detail_indent.clone(),
+                    Span::styled(detail_parts.join(" | "), detail_style),
+                ]).style(detail_style)); // Apply style to entire line to prevent highlighting
+
+                // Third line: advanced details (only for known networks)
+                if net.known {
+                    let mut advanced_parts = vec![];
+
+                    if let Some(p) = net.priority {
+                        advanced_parts.push(format!("priority: {}", p));
+                    }
+
+                    match net.autoconnect {
+                        Some(true) => advanced_parts.push("auto-connect: on".to_string()),
+                        Some(false) => advanced_parts.push("auto-connect: off".to_string()),
+                        None => advanced_parts.push("auto-connect: default".to_string()),
+                    }
+
+                    match net.autoconnect_retries {
+                        Some(r) => advanced_parts.push(format!("auto-connect retries: {}", r)),
+                        None => advanced_parts.push("auto-connect retries: default".to_string()),
+                    }
+
+                    if !advanced_parts.is_empty() {
+                        lines.push(Line::from(vec![
+                            detail_indent,
+                            Span::styled(advanced_parts.join(" | "), detail_style),
+                        ]).style(detail_style)); // Apply style to entire line to prevent highlighting
+                    }
+                }
+
+                ListItem::new(lines)
+            } else {
+                // Single line format: just show the network name
+                let content = Line::from(vec![
                     Span::styled(format!("{}{}", prefix, active_marker), main_style),
                     Span::styled(signal_indicator, signal_style),
                     Span::styled(net.ssid.clone(), main_style),
-                ])
-            };
-            ListItem::new(content)
+                ]);
+                ListItem::new(content)
+            }
         })
         .collect();
 
@@ -566,11 +598,6 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 .border_type(BorderType::Rounded)
                 .title("Networks")
                 .style(block_style),
-        )
-        .highlight_style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
         );
 
     f.render_stateful_widget(list, area, &mut app.list_state);
