@@ -26,7 +26,6 @@ pub enum Msg {
     CancelInput,
     ConnectionSuccess,
     ConnectionFailure(String),
-    ConfirmDisconnect,
     SubmitDisconnect,
     DisconnectSuccess,
     DisconnectFailure(String),
@@ -35,7 +34,6 @@ pub enum Msg {
     ForgetSuccess,
     ForgetFailure(String),
     DPressed,
-    DReleased,
     ToggleAutoconnect,
     AutoconnectSuccess,
     AutoconnectFailure(String),
@@ -297,9 +295,6 @@ impl App {
                     self.error_message = Some(format!("Connection failed: {}", error));
                 }
             }
-            Msg::ConfirmDisconnect => {
-                self.input_mode = InputMode::ConfirmDisconnect;
-            }
             Msg::SubmitDisconnect => {
                 self.input_mode = InputMode::Normal;
             }
@@ -325,9 +320,6 @@ impl App {
             }
             Msg::DPressed => {
                 self.d_pressed = !self.d_pressed;
-            }
-            Msg::DReleased => {
-                // No longer needed but kept for compatibility
             }
             Msg::ToggleAutoconnect => {
                 // No-op in app state - handled by network layer
