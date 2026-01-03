@@ -11,7 +11,6 @@ pub enum Msg {
   MoveDown,
   NetworksFound(Vec<WifiInfo>),
   DeviceInfoUpdate(WifiDeviceInfo),
-  Error(String),
   DismissError,
   EnterInput,
   Input(char),
@@ -27,15 +26,15 @@ pub enum Msg {
   ConnectionFailure(anyhow::Error),
   SubmitDisconnect,
   DisconnectSuccess,
-  DisconnectFailure(String),
+  DisconnectFailure(anyhow::Error),
   ConfirmForget,
   SubmitForget,
   ForgetSuccess,
-  ForgetFailure(String),
+  ForgetFailure(anyhow::Error),
   DPressed,
   ToggleAutoconnect,
   AutoconnectSuccess,
-  AutoconnectFailure(String),
+  AutoconnectFailure(anyhow::Error),
 }
 
 /// Represents the different modal states of the application.
@@ -58,7 +57,7 @@ pub enum AppState {
     throbber_state: ThrobberState,
   },
   /// Displaying an error message
-  ShowingError { message: String }, // TODO: make this anyhow::Error
+  ShowingError { error: anyhow::Error },
   /// Confirming disconnect from active network
   ConfirmDisconnect { network: WifiInfo },
   /// Confirming forgetting a known network
@@ -159,9 +158,6 @@ impl App {
 
         *networks = new_networks;
       }
-      Msg::Error(e) => {
-        *state = AppState::ShowingError { message: e };
-      }
       Msg::DismissError => {
         *state = AppState::Normal;
       }
@@ -258,9 +254,7 @@ impl App {
         *state = AppState::Normal;
       }
       Msg::ConnectionFailure(error) => {
-        *state = AppState::ShowingError {
-          message: format!("Connection failed: {:?}", error),
-        };
+        *state = AppState::ShowingError { error };
       }
       Msg::SubmitDisconnect => {
         *state = AppState::Normal;
@@ -269,9 +263,7 @@ impl App {
         *state = AppState::Normal;
       }
       Msg::DisconnectFailure(error) => {
-        *state = AppState::ShowingError {
-          message: format!("Disconnect failed: {}", error),
-        };
+        *state = AppState::ShowingError { error };
       }
       Msg::ConfirmForget => {
         if let Some(net) = focused_network {
@@ -285,9 +277,7 @@ impl App {
         *state = AppState::Normal;
       }
       Msg::ForgetFailure(error) => {
-        *state = AppState::ShowingError {
-          message: format!("Failed to forget network: {}", error),
-        };
+        *state = AppState::ShowingError { error };
       }
       Msg::DPressed => {
         *show_detailed_view = !*show_detailed_view;
@@ -299,9 +289,7 @@ impl App {
         // Auto-connect setting changed successfully - rescan will update UI
       }
       Msg::AutoconnectFailure(error) => {
-        *state = AppState::ShowingError {
-          message: format!("Failed to toggle auto-connect: {}", error),
-        };
+        *state = AppState::ShowingError { error };
       }
     }
   }

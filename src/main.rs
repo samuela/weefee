@@ -55,109 +55,77 @@ async fn main() -> Result<()> {
   std::thread::spawn(move || {
     // We use std::thread because nm might use thread-local storage or glib contexts
     // that are simpler to manage in a dedicated OS thread than tokio's thread pool.
-    let client_res = NetworkClient::new();
+    let client = NetworkClient::new().unwrap();
 
-    match client_res {
-      Ok(client) => {
-        // Initial fetch
-        if let Ok(device_info) = client.get_device_info() {
-          tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info)).unwrap();
-        }
-        if let Ok(nets) = client.get_wifi_networks() {
-          tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-        } else {
-          tx_net.blocking_send(Msg::Error("Failed initial scan".into())).unwrap();
-        }
+    // Helpers to DRY up repeated sends
+    let rescan = || {
+      tx_net
+        .blocking_send(Msg::DeviceInfoUpdate(client.get_device_info().unwrap()))
+        .unwrap();
+      tx_net
+        .blocking_send(Msg::NetworksFound(client.get_wifi_networks().unwrap()))
+        .unwrap();
+    };
 
-        while let Some(cmd) = net_rx.blocking_recv() {
-          match cmd {
-            NetCmd::Scan => {
-              // Update device info on each scan
-              if let Ok(device_info) = client.get_device_info() {
-                tx_net.blocking_send(Msg::DeviceInfoUpdate(device_info)).unwrap();
-              }
-              match client.get_wifi_networks() {
-                Ok(nets) => {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-                Err(e) => {
-                  tx_net.blocking_send(Msg::Error(e.to_string())).unwrap();
-                }
-              }
+    // Initial fetch
+    rescan();
+
+    while let Some(cmd) = net_rx.blocking_recv() {
+      match cmd {
+        NetCmd::Scan => {
+          // Update device info on each scan
+          rescan();
+        }
+        NetCmd::Connect(ssid, password) => match client.connect(&ssid, &password) {
+          Ok(_) => {
+            tx_net.blocking_send(Msg::ConnectionSuccess).unwrap();
+            // Trigger rescan to update network list with the new active connection
+            rescan();
+          }
+          Err(e) => {
+            tx_net.blocking_send(Msg::ConnectionFailure(e)).unwrap();
+            // Trigger rescan to ensure UI reflects actual state
+            rescan();
+          }
+        },
+        NetCmd::Disconnect => match client.disconnect() {
+          Ok(_) => {
+            tx_net.blocking_send(Msg::DisconnectSuccess).unwrap();
+            // Trigger rescan to update network list
+            rescan();
+          }
+          Err(e) => {
+            tx_net.blocking_send(Msg::DisconnectFailure(e)).unwrap();
+            // Trigger rescan to ensure UI reflects actual state
+            rescan();
+          }
+        },
+        NetCmd::Forget(ssid) => match client.forget_network(&ssid) {
+          Ok(_) => {
+            tx_net.blocking_send(Msg::ForgetSuccess).unwrap();
+            // Trigger rescan to update network list
+            rescan();
+          }
+          Err(e) => {
+            tx_net.blocking_send(Msg::ForgetFailure(e)).unwrap();
+            // Trigger rescan to ensure UI reflects actual state
+            rescan();
+          }
+        },
+        NetCmd::ToggleAutoconnect(ssid) => {
+          match client.toggle_autoconnect(&ssid) {
+            Ok(_) => {
+              tx_net.blocking_send(Msg::AutoconnectSuccess).unwrap();
+              // Trigger rescan to update network list with new autoconnect status
+              rescan();
             }
-            NetCmd::Connect(ssid, password) => match client.connect(&ssid, &password) {
-              Ok(_) => {
-                tx_net.blocking_send(Msg::ConnectionSuccess).unwrap();
-                // Trigger rescan to update network list with the new active connection
-                if let Ok(nets) = client.get_wifi_networks() {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-              }
-              Err(e) => {
-                tx_net.blocking_send(Msg::ConnectionFailure(e)).unwrap();
-                // Trigger rescan to ensure UI reflects actual state
-                if let Ok(nets) = client.get_wifi_networks() {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-              }
-            },
-            NetCmd::Disconnect => match client.disconnect() {
-              Ok(_) => {
-                tx_net.blocking_send(Msg::DisconnectSuccess).unwrap();
-                // Trigger rescan to update network list
-                if let Ok(nets) = client.get_wifi_networks() {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-              }
-              Err(e) => {
-                tx_net.blocking_send(Msg::DisconnectFailure(e.to_string())).unwrap();
-                // Trigger rescan to ensure UI reflects actual state
-                if let Ok(nets) = client.get_wifi_networks() {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-              }
-            },
-            NetCmd::Forget(ssid) => match client.forget_network(&ssid) {
-              Ok(_) => {
-                tx_net.blocking_send(Msg::ForgetSuccess).unwrap();
-                // Trigger rescan to update network list
-                if let Ok(nets) = client.get_wifi_networks() {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-              }
-              Err(e) => {
-                tx_net.blocking_send(Msg::ForgetFailure(e.to_string())).unwrap();
-                // Trigger rescan to ensure UI reflects actual state
-                if let Ok(nets) = client.get_wifi_networks() {
-                  tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                }
-              }
-            },
-            NetCmd::ToggleAutoconnect(ssid) => {
-              match client.toggle_autoconnect(&ssid) {
-                Ok(_) => {
-                  tx_net.blocking_send(Msg::AutoconnectSuccess).unwrap();
-                  // Trigger rescan to update network list with new autoconnect status
-                  if let Ok(nets) = client.get_wifi_networks() {
-                    tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                  }
-                }
-                Err(e) => {
-                  tx_net.blocking_send(Msg::AutoconnectFailure(e.to_string())).unwrap();
-                  // Trigger rescan to ensure UI reflects actual state
-                  if let Ok(nets) = client.get_wifi_networks() {
-                    tx_net.blocking_send(Msg::NetworksFound(nets)).unwrap();
-                  }
-                }
-              }
+            Err(e) => {
+              tx_net.blocking_send(Msg::AutoconnectFailure(e)).unwrap();
+              // Trigger rescan to ensure UI reflects actual state
+              rescan();
             }
           }
         }
-      }
-      Err(e) => {
-        tx_net
-          .blocking_send(Msg::Error(format!("Failed to init NM: {}", e)))
-          .unwrap();
       }
     }
   });
@@ -432,7 +400,7 @@ async fn main() -> Result<()> {
             } else {
               // Show error if network is not known
               *state = AppState::ShowingError {
-                message: "Cannot toggle auto-connect: network is not saved/known. Connect to it first.".to_string(),
+                error: anyhow::anyhow!("Cannot toggle auto-connect: network is not saved/known. Connect to it first."),
               };
             }
           }

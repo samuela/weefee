@@ -386,7 +386,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         f.render_widget(prompt_widget, layout[1]);
       }
     }
-    AppState::ShowingError { message } => {
+    AppState::ShowingError { error } => {
       let block = Block::default()
         .title("Error")
         .borders(Borders::ALL)
@@ -415,7 +415,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(inner_area);
 
-      let error_display = Paragraph::new(message.as_str())
+      let error_display = Paragraph::new(format!("{:#}", error))
         .style(Style::default().fg(Color::White))
         .wrap(Wrap { trim: true });
       f.render_widget(error_display, layout[0]);
