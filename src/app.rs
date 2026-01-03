@@ -187,27 +187,13 @@ impl App {
                             };
                         }
 
-                        // If a dialog is open, deselect everything (user will need to reselect)
-                        if !matches!(state, AppState::Normal) {
-                            *selected_index = 0;
-                            list_state.select(None);
-                        } else {
-                            // In normal mode, clamp selection to valid bounds
-                            if !networks.is_empty() {
-                                *selected_index = (*selected_index).min(networks.len() - 1);
-                                list_state.select(Some(*selected_index));
-                            } else {
-                                *selected_index = 0;
-                                list_state.select(Some(0));
-                            }
-                        }
+                        // Network disappeared - deselect in all modes
+                        *selected_index = 0;
+                        list_state.select(None);
                     }
-                } else if !networks.is_empty() {
-                    *selected_index = (*selected_index).min(networks.len() - 1);
-                    list_state.select(Some(*selected_index));
                 } else {
                     *selected_index = 0;
-                    list_state.select(Some(0));
+                    list_state.select(None);
                 }
             }
             Msg::Error(e) => {
