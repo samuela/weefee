@@ -18,6 +18,7 @@ pub struct WifiInfo {
     pub priority: Option<i32>,
     pub autoconnect: Option<bool>,
     pub autoconnect_retries: Option<i32>,
+    pub frequency: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -231,6 +232,9 @@ impl NetworkClient {
                             // Get Strength
                             let strength = ap_proxy.strength().unwrap_or(0);
 
+                            // Get Frequency
+                            let frequency = ap_proxy.frequency().ok();
+
                             // Security flags
                             let rsn = ap_proxy.rsn_flags().unwrap_or(0);
                             let wpa = ap_proxy.wpa_flags().unwrap_or(0);
@@ -257,6 +261,7 @@ impl NetworkClient {
                                 priority,
                                 autoconnect,
                                 autoconnect_retries,
+                                frequency,
                             });
                         }
                     }

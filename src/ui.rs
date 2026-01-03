@@ -565,6 +565,20 @@ fn draw_network_list(f: &mut Frame, networks: &[WifiInfo], selected_index: usize
                 // Signal strength percentage
                 detail_parts.push(format!("signal: {}%", net.strength));
 
+                // Frequency and band information
+                if let Some(freq) = net.frequency {
+                    let band = if freq >= 2412 && freq <= 2484 {
+                        "2.4 GHz"
+                    } else if freq >= 5170 && freq <= 5835 {
+                        "5 GHz"
+                    } else if freq >= 5945 && freq <= 7125 {
+                        "6 GHz"
+                    } else {
+                        "unknown band"
+                    };
+                    detail_parts.push(format!("frequency: {} MHz ({})", freq, band));
+                }
+
                 // Security with warning if weak
                 let warning = if net.weak_security { " (⚠ insecure)" } else { "" };
                 detail_parts.push(format!("security: {}{}", net.security, warning));
