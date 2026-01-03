@@ -514,13 +514,33 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 };
                 let known_str = if net.known { " known" } else { "" };
 
+                // Add autoconnect settings (only shown for known networks)
+                let autoconnect_str = if net.known {
+                    match net.autoconnect {
+                        Some(true) => " AC:on".to_string(),
+                        Some(false) => " AC:off".to_string(),
+                        None => " AC:default".to_string(), // NM defaults to true
+                    }
+                } else {
+                    String::new()
+                };
+
+                let autoconnect_retries_str = if net.known {
+                    match net.autoconnect_retries {
+                        Some(r) => format!(" ACR:{}", r),
+                        None => " ACR:default".to_string(), // NM defaults to -1 (infinite)
+                    }
+                } else {
+                    String::new()
+                };
+
                 // Create styled line with dimmed details
                 let detail_style = Style::default().fg(Color::DarkGray);
                 Line::from(vec![
                     Span::styled(format!("{}{}", prefix, active_marker), main_style),
                     Span::styled(signal_indicator, signal_style),
                     Span::styled(net.ssid.clone(), main_style),
-                    Span::styled(format!(" ({}%) [{}{}{}]{}", net.strength, net.security, warning, priority_str, known_str), detail_style),
+                    Span::styled(format!(" ({}%) [{}{}{}{}{}]{}", net.strength, net.security, warning, priority_str, autoconnect_str, autoconnect_retries_str, known_str), detail_style),
                 ])
             } else {
                 // Show signal strength indicator between link emoji and SSID

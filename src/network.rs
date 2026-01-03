@@ -16,6 +16,8 @@ pub struct WifiInfo {
     pub weak_security: bool,
     pub known: bool,
     pub priority: Option<i32>,
+    pub autoconnect: Option<bool>,
+    pub autoconnect_retries: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +36,8 @@ struct SavedConnection {
     path: dbus::Path<'static>,
     ssid: String,
     priority: Option<i32>,
+    autoconnect: Option<bool>,
+    autoconnect_retries: Option<i32>,
 }
 
 const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
@@ -102,10 +106,30 @@ impl NetworkClient {
                                             .and_then(|v| v.0.as_i64())
                                             .map(|p| p as i32);
 
+                                        // Get autoconnect (boolean stored in Variant)
+                                        let autoconnect = conn_settings
+                                            .get("autoconnect")
+                                            .and_then(|v| {
+                                                // Try as bool first
+                                                if let Some(b) = v.0.as_u64() {
+                                                    Some(b != 0)
+                                                } else {
+                                                    v.0.as_i64().map(|b| b != 0)
+                                                }
+                                            });
+
+                                        // Get autoconnect-retries
+                                        let autoconnect_retries = conn_settings
+                                            .get("autoconnect-retries")
+                                            .and_then(|v| v.0.as_i64())
+                                            .map(|r| r as i32);
+
                                         saved_connections.push(SavedConnection {
                                             path: conn_path.clone(),
                                             ssid,
                                             priority,
+                                            autoconnect,
+                                            autoconnect_retries,
                                         });
                                     }
                                 }
@@ -233,6 +257,8 @@ impl NetworkClient {
                             let saved_conn = saved_connections.iter().find(|c| c.ssid == ssid);
                             let known = saved_conn.is_some();
                             let priority = saved_conn.and_then(|c| c.priority);
+                            let autoconnect = saved_conn.and_then(|c| c.autoconnect);
+                            let autoconnect_retries = saved_conn.and_then(|c| c.autoconnect_retries);
 
                             networks.push(WifiInfo {
                                 ssid,
@@ -242,6 +268,8 @@ impl NetworkClient {
                                 weak_security,
                                 known,
                                 priority,
+                                autoconnect,
+                                autoconnect_retries,
                             });
                         }
                     }
