@@ -405,7 +405,22 @@ fn centered_rect_fixed(width: u16, height: u16, r: Rect) -> Rect {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
-    let style = if is_dimmed {
+    // Check if WiFi is disabled
+    let wifi_disabled = app.device_info.as_ref().map_or(false, |info| !info.wifi_enabled);
+    // Check if we're connected to any network
+    let is_connected = app.networks.iter().any(|n| n.active);
+
+    let style = if wifi_disabled {
+        // WiFi is disabled - use red color
+        Style::default()
+            .fg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    } else if !is_connected {
+        // WiFi is enabled but not connected - use orange color
+        Style::default()
+            .fg(Color::Rgb(255, 165, 0))
+            .add_modifier(Modifier::BOLD)
+    } else if is_dimmed {
         Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::BOLD)
@@ -414,7 +429,13 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD)
     };
-    let block_style = if is_dimmed {
+    let block_style = if wifi_disabled {
+        // WiFi is disabled - use red border
+        Style::default().fg(Color::Red)
+    } else if !is_connected {
+        // WiFi is enabled but not connected - use orange border
+        Style::default().fg(Color::Rgb(255, 165, 0))
+    } else if is_dimmed {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default()
