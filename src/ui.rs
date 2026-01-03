@@ -204,25 +204,40 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             };
 
             use ratatui::text::{Line, Span};
+
+            // Split inner area: message area (flexible) and prompt at bottom (1 line)
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(0),      // Message area
+                    Constraint::Length(2),   // Blank line + prompt
+                ])
+                .split(inner_area);
+
             let message_lines = vec![
                 Line::from(vec![
                     Span::raw("Disconnect from "),
                     Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::raw("?"),
                 ]),
-                Line::from(""),
-                Line::from(vec![
-                    Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                    Span::raw("es / "),
-                    Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                    Span::raw("o"),
-                ]),
             ];
 
             let message = Paragraph::new(message_lines)
                 .style(Style::default().fg(Color::White))
                 .wrap(Wrap { trim: true });
-            f.render_widget(message, inner_area);
+            f.render_widget(message, layout[0]);
+
+            // Render prompt at bottom, centered
+            let prompt_line = Line::from(vec![
+                Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("es / "),
+                Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw("o"),
+            ]);
+            let prompt_widget = Paragraph::new(vec![Line::from(""), prompt_line])
+                .style(Style::default().fg(Color::White))
+                .alignment(ratatui::layout::Alignment::Center);
+            f.render_widget(prompt_widget, layout[1]);
         }
         AppState::ConfirmForget => {
             let network = networks.get(*selected_index);
@@ -246,6 +261,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             };
 
             use ratatui::text::{Line, Span};
+
+            // Split inner area: message area (flexible) and prompt at bottom (1 line)
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(0),      // Message area
+                    Constraint::Length(2),   // Blank line + prompt
+                ])
+                .split(inner_area);
+
             let mut message_lines = vec![
                 Line::from(vec![
                     Span::raw("Forget network "),
@@ -261,18 +286,22 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 message_lines.push(Line::from("This will delete the saved password and settings."));
             }
 
-            message_lines.push(Line::from(""));
-            message_lines.push(Line::from(vec![
+            let message = Paragraph::new(message_lines)
+                .style(Style::default().fg(Color::White))
+                .wrap(Wrap { trim: true });
+            f.render_widget(message, layout[0]);
+
+            // Render prompt at bottom, centered
+            let prompt_line = Line::from(vec![
                 Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::raw("es / "),
                 Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                 Span::raw("o"),
-            ]));
-
-            let message = Paragraph::new(message_lines)
+            ]);
+            let prompt_widget = Paragraph::new(vec![Line::from(""), prompt_line])
                 .style(Style::default().fg(Color::White))
-                .wrap(Wrap { trim: true });
-            f.render_widget(message, inner_area);
+                .alignment(ratatui::layout::Alignment::Center);
+            f.render_widget(prompt_widget, layout[1]);
         }
         AppState::ConfirmWeakSecurity { ssid, security_type } => {
 
