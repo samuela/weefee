@@ -34,6 +34,8 @@ pub enum Msg {
     SubmitForget,
     ForgetSuccess,
     ForgetFailure(String),
+    DPressed,
+    DReleased,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,6 +46,7 @@ pub enum InputMode {
     Error,
     ConfirmDisconnect,
     ConfirmForget,
+    ConfirmWeakSecurity,
 }
 
 pub struct App {
@@ -60,6 +63,9 @@ pub struct App {
     pub password_error: Option<String>,
     pub error_message: Option<String>,
     pub throbber_state: ThrobberState,
+    pub d_pressed: bool,
+    pub weak_security_ssid: Option<String>,
+    pub weak_security_type: Option<String>,
 }
 
 impl App {
@@ -80,6 +86,9 @@ impl App {
             password_error: None,
             error_message: None,
             throbber_state: ThrobberState::default(),
+            d_pressed: false,
+            weak_security_ssid: None,
+            weak_security_type: None,
         }
     }
 
@@ -92,13 +101,25 @@ impl App {
             }
             Msg::Quit => self.should_quit = true,
             Msg::MoveUp => {
-                if self.selected_index > 0 {
+                // If nothing selected, select first network
+                if self.list_state.selected().is_none() {
+                    if !self.networks.is_empty() {
+                        self.selected_index = 0;
+                        self.list_state.select(Some(0));
+                    }
+                } else if self.selected_index > 0 {
                     self.selected_index -= 1;
                     self.list_state.select(Some(self.selected_index));
                 }
             }
             Msg::MoveDown => {
-                if self.selected_index + 1 < self.networks.len() {
+                // If nothing selected, select first network
+                if self.list_state.selected().is_none() {
+                    if !self.networks.is_empty() {
+                        self.selected_index = 0;
+                        self.list_state.select(Some(0));
+                    }
+                } else if self.selected_index + 1 < self.networks.len() {
                     self.selected_index += 1;
                     self.list_state.select(Some(self.selected_index));
                 }
@@ -135,13 +156,20 @@ impl App {
                             self.password_input.reset();
                             self.password_error = None;
                         }
-                        // Clamp selection to valid bounds
-                        if !self.networks.is_empty() {
-                            self.selected_index = self.selected_index.min(self.networks.len() - 1);
-                            self.list_state.select(Some(self.selected_index));
-                        } else {
+
+                        // If a dialog is open, deselect everything (user will need to reselect)
+                        if self.input_mode != InputMode::Normal {
                             self.selected_index = 0;
-                            self.list_state.select(Some(0));
+                            self.list_state.select(None);
+                        } else {
+                            // In normal mode, clamp selection to valid bounds
+                            if !self.networks.is_empty() {
+                                self.selected_index = self.selected_index.min(self.networks.len() - 1);
+                                self.list_state.select(Some(self.selected_index));
+                            } else {
+                                self.selected_index = 0;
+                                self.list_state.select(Some(0));
+                            }
                         }
                     }
                 } else if !self.networks.is_empty() {
@@ -166,16 +194,19 @@ impl App {
                     // If network is active (connected), show disconnect confirmation
                     if net.active {
                         self.input_mode = InputMode::ConfirmDisconnect;
+                    } else if net.weak_security {
+                        // Show warning for insecure networks before connecting (even if known)
+                        // Capture network info to prevent it from changing during refreshes
+                        self.weak_security_ssid = Some(net.ssid.clone());
+                        self.weak_security_type = Some(net.security.clone());
+                        self.input_mode = InputMode::ConfirmWeakSecurity;
                     } else if net.known {
-                        // Known network - connect directly without password prompt
+                        // Known secure network - connect directly without password prompt
                         self.input_mode = InputMode::Connecting;
                         let ssid = net.ssid.clone();
                         self.connecting_ssid = Some(ssid);
-                    } else if net.security == "Open" || net.security.contains("WEP/Open") {
-                        self.input_mode = InputMode::Editing;
-                        self.password_input.reset();
-                        self.password_error = None;
                     } else {
+                        // Unknown secure network - proceed to password input
                         self.input_mode = InputMode::Editing;
                         self.password_input.reset();
                         self.password_error = None;
@@ -211,18 +242,37 @@ impl App {
                     .handle(tui_input::InputRequest::DeletePrevWord);
             }
             Msg::SubmitConnection => {
-                self.input_mode = InputMode::Connecting;
-                let ssid = self
-                    .networks
-                    .get(self.selected_index)
-                    .map(|n| n.ssid.clone())
-                    .unwrap_or_else(|| "Unknown".to_string());
-                self.connecting_ssid = Some(ssid);
+                // If we're in ConfirmWeakSecurity mode, check if network is known
+                if self.input_mode == InputMode::ConfirmWeakSecurity {
+                    if let Some(net) = self.networks.get(self.selected_index) {
+                        if net.known {
+                            // Known insecure network - connect directly
+                            self.input_mode = InputMode::Connecting;
+                            self.connecting_ssid = Some(net.ssid.clone());
+                        } else {
+                            // Unknown insecure network - go to password input
+                            self.input_mode = InputMode::Editing;
+                            self.password_input.reset();
+                            self.password_error = None;
+                        }
+                    }
+                } else {
+                    // Otherwise, we're submitting from Editing mode, so connect
+                    self.input_mode = InputMode::Connecting;
+                    let ssid = self
+                        .networks
+                        .get(self.selected_index)
+                        .map(|n| n.ssid.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    self.connecting_ssid = Some(ssid);
+                }
             }
             Msg::CancelInput => {
                 self.input_mode = InputMode::Normal;
                 self.password_input.reset();
                 self.password_error = None;
+                self.weak_security_ssid = None;
+                self.weak_security_type = None;
             }
             Msg::ConnectionSuccess => {
                 self.input_mode = InputMode::Normal;
@@ -269,6 +319,12 @@ impl App {
             Msg::ForgetFailure(error) => {
                 self.input_mode = InputMode::Error;
                 self.error_message = Some(format!("Failed to forget network: {}", error));
+            }
+            Msg::DPressed => {
+                self.d_pressed = !self.d_pressed;
+            }
+            Msg::DReleased => {
+                // No longer needed but kept for compatibility
             }
         }
     }

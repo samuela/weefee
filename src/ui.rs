@@ -258,6 +258,92 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 .wrap(Wrap { trim: true });
             f.render_widget(message, inner_area);
         }
+        InputMode::ConfirmWeakSecurity => {
+            // Use captured network info to prevent it from changing during refreshes
+            let ssid = app.weak_security_ssid.as_deref().unwrap_or("Unknown");
+            let security = app.weak_security_type.as_deref().unwrap_or("Unknown");
+
+            use ratatui::text::{Line, Span};
+            let mut message_lines = vec![];
+
+            // Distinguish between no security and weak security
+            if security == "Open" {
+                message_lines.push(Line::from(vec![
+                    Span::raw("Network "),
+                    Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(" has "),
+                    Span::styled("no security", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Span::raw(". Anyone can intercept your data."),
+                ]));
+            } else {
+                // Weak security (WEP or similar)
+                message_lines.push(Line::from(vec![
+                    Span::raw("Network "),
+                    Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(" uses "),
+                    Span::styled(security, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Span::raw("."),
+                ]));
+
+                if security.contains("WEP") {
+                    message_lines.push(Line::from("WEP is outdated and can be cracked in minutes. Your data can be easily intercepted by attackers."));
+                } else {
+                    message_lines.push(Line::from("This encryption method is outdated and insecure. Your data may be vulnerable to interception."));
+                }
+            }
+
+            message_lines.push(Line::from(""));
+            message_lines.push(Line::from(vec![
+                Span::styled("Continue anyway? ", Style::default().fg(Color::White)),
+                Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("es / "),
+                Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw("o"),
+            ]));
+
+            let block = Block::default()
+                // .title("⚠ Security Warning")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(Color::Red));
+
+            let area = centered_rect(70, 30, f.area());
+            f.render_widget(Clear, area);
+            f.render_widget(block, area);
+
+            let inner_area = Rect {
+                x: area.x + 1,
+                y: area.y + 1,
+                width: area.width.saturating_sub(2),
+                height: area.height.saturating_sub(2),
+            };
+
+            // Split inner area: message area (flexible) and prompt at bottom (1 line)
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(0),      // Message area
+                    Constraint::Length(2),   // Blank line + prompt
+                ])
+                .split(inner_area);
+
+            // Remove the last two lines from message_lines (blank line + prompt)
+            let prompt_line = message_lines.pop();
+            let _blank_line = message_lines.pop();
+
+            let message = Paragraph::new(message_lines)
+                .style(Style::default().fg(Color::White))
+                .wrap(Wrap { trim: true });
+            f.render_widget(message, layout[0]);
+
+            // Render prompt at bottom, centered
+            if let Some(prompt) = prompt_line {
+                let prompt_widget = Paragraph::new(vec![Line::from(""), prompt])
+                    .style(Style::default().fg(Color::White))
+                    .alignment(ratatui::layout::Alignment::Center);
+                f.render_widget(prompt_widget, layout[1]);
+            }
+        }
         InputMode::Error => {
             let error_msg = app.error_message.as_deref().unwrap_or("Unknown error");
             let block = Block::default()
@@ -363,37 +449,53 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
 }
 
 fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) {
+    use ratatui::text::{Line, Span};
+
     let items: Vec<ListItem> = app
         .networks
         .iter()
         .enumerate()
         .map(|(i, net)| {
-            let style = if is_dimmed {
+            let main_style = if is_dimmed {
                 Style::default().fg(Color::DarkGray)
             } else if i == app.selected_index {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
-            } else if net.weak_security {
-                Style::default().fg(Color::Red)
             } else {
                 Style::default()
             };
 
-            let prefix = if i == app.selected_index { "> " } else { "  " };
-            let active_marker = if net.active { "*" } else { " " };
-            let known_marker = if net.known { "K" } else { " " };
-            let warning = if net.weak_security { " (!)" } else { "" };
-            let priority_str = if let Some(p) = net.priority {
-                format!(" P:{}", p)
+            let prefix = if i == app.selected_index { "→ " } else { "  " };
+            // let active_marker = if net.active { "🛜 " } else { "   " };
+            // let active_marker = if net.active { "● " } else { "  " };
+            // let active_marker = if net.active { "🌐 " } else { "   " };
+            let active_marker = if net.active { "🔗 " } else { "   " };
+
+            let content = if app.d_pressed {
+                // Show signal strength and security when 'd' is pressed
+                let warning = if net.weak_security { " (!)" } else { "" };
+                let priority_str = if let Some(p) = net.priority {
+                    format!(" P:{}", p)
+                } else {
+                    String::new()
+                };
+                let known_str = if net.known { " known" } else { "" };
+
+                // Create styled line with dimmed details
+                let detail_style = Style::default().fg(Color::DarkGray);
+                Line::from(vec![
+                    Span::styled(format!("{}{}{}", prefix, active_marker, net.ssid), main_style),
+                    Span::styled(format!(" ({}%) [{}{}{}]{}", net.strength, net.security, warning, priority_str, known_str), detail_style),
+                ])
             } else {
-                String::new()
+                // Hide signal strength and security details when 'd' is not pressed
+                Line::from(Span::styled(
+                    format!("{}{}{}", prefix, active_marker, net.ssid),
+                    main_style
+                ))
             };
-            let content = format!(
-                "{}{}{}{} ({}%) [{}{}{}]",
-                prefix, active_marker, known_marker, net.ssid, net.strength, net.security, warning, priority_str
-            );
-            ListItem::new(content).style(style)
+            ListItem::new(content)
         })
         .collect();
 

@@ -148,11 +148,14 @@ async fn main() -> Result<()> {
     tokio::task::spawn_blocking(move || {
         loop {
             // Poll for events
-            if event::poll(Duration::from_millis(250)).unwrap() {
+            if event::poll(Duration::from_millis(200)).unwrap() {
                 if let Event::Key(key) = event::read().unwrap() {
                     let mode = *app_input_state_clone.lock().unwrap();
                     match mode {
                         InputMode::Normal => match key.code {
+                            KeyCode::Char('d') => {
+                                let _ = tx_input.blocking_send(Msg::DPressed);
+                            }
                             KeyCode::Char('q') => {
                                 let _ = tx_input.blocking_send(Msg::Quit);
                             }
@@ -258,6 +261,18 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
+                        InputMode::ConfirmWeakSecurity => match key.code {
+                            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                let _ = tx_input.blocking_send(Msg::SubmitConnection);
+                            }
+                            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                                let _ = tx_input.blocking_send(Msg::CancelInput);
+                            }
+                            KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
+                                let _ = tx_input.blocking_send(Msg::Quit);
+                            }
+                            _ => {}
+                        },
                     }
                 }
             } else {
@@ -293,7 +308,17 @@ async fn main() -> Result<()> {
                         let ssid = net.ssid.clone();
                         let password = app.password_input.value().to_string();
                         app.update(Msg::SubmitConnection);
-                        let _ = net_tx.send(NetCmd::Connect(ssid, password)).await;
+
+                        // If we're now in Connecting mode, it means it's a known insecure network
+                        // and we should connect with empty password (stored password will be used)
+                        if app.input_mode == InputMode::Connecting {
+                            if let Some(connecting_ssid) = app.connecting_ssid.clone() {
+                                let _ = net_tx.send(NetCmd::Connect(connecting_ssid, String::new())).await;
+                            }
+                        } else {
+                            // Otherwise, we're connecting with the entered password
+                            let _ = net_tx.send(NetCmd::Connect(ssid, password)).await;
+                        }
                     }
                 }
                 Msg::SubmitDisconnect => {
