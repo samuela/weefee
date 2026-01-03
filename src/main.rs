@@ -335,11 +335,11 @@ async fn main() -> Result<()> {
             if was_editing {
               net_tx.send(NetCmd::Connect(net.ssid, password)).await.unwrap();
             } else if let App::Running {
-              state: AppState::Connecting { ssid, .. },
+              state: AppState::Connecting { network, .. },
               ..
             } = &app
             {
-              net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await.unwrap();
+              net_tx.send(NetCmd::Connect(network.ssid.clone(), String::new())).await.unwrap();
             }
           }
         }
@@ -375,12 +375,12 @@ async fn main() -> Result<()> {
           // If we're now in Connecting mode, it means it's a known network
           // and we should connect without asking for password
           if let App::Running {
-            state: AppState::Connecting { ssid, .. },
+            state: AppState::Connecting { network, .. },
             ..
           } = &app
           {
             // Empty password for known networks (stored password will be used)
-            net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await.unwrap();
+            net_tx.send(NetCmd::Connect(network.ssid.clone(), String::new())).await.unwrap();
           }
         }
         Msg::ToggleAutoconnect => {

@@ -51,7 +51,7 @@ pub enum AppState {
   },
   /// Currently connecting to a network
   Connecting {
-    ssid: String,
+    network: WifiInfo,
     throbber_state: ThrobberState,
   },
   /// Displaying an error message
@@ -170,7 +170,7 @@ impl App {
           } else if net.known {
             // Known secure network - connect directly without password prompt
             *state = AppState::Connecting {
-              ssid: net.ssid.clone(),
+              network: net.clone(),
               throbber_state: ThrobberState::default(),
             };
           } else {
@@ -223,7 +223,7 @@ impl App {
           if network.known {
             // Known insecure network - connect directly
             *state = AppState::Connecting {
-              ssid: network.ssid.clone(),
+              network: network.clone(),
               throbber_state: ThrobberState::default(),
             };
           } else {
@@ -236,7 +236,7 @@ impl App {
         } else if let AppState::EditingPassword { network, .. } = &*state {
           // Otherwise, we're submitting from Editing mode, so connect
           *state = AppState::Connecting {
-            ssid: network.ssid.clone(),
+            network: network.clone(),
             throbber_state: ThrobberState::default(),
           };
         } else {
