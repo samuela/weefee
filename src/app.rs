@@ -36,6 +36,9 @@ pub enum Msg {
     ForgetFailure(String),
     DPressed,
     DReleased,
+    ToggleAutoconnect,
+    AutoconnectSuccess,
+    AutoconnectFailure(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -325,6 +328,16 @@ impl App {
             }
             Msg::DReleased => {
                 // No longer needed but kept for compatibility
+            }
+            Msg::ToggleAutoconnect => {
+                // No-op in app state - handled by network layer
+            }
+            Msg::AutoconnectSuccess => {
+                // Auto-connect setting changed successfully - rescan will update UI
+            }
+            Msg::AutoconnectFailure(error) => {
+                self.input_mode = InputMode::Error;
+                self.error_message = Some(format!("Failed to toggle auto-connect: {}", error));
             }
         }
     }

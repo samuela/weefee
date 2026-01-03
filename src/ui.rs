@@ -531,7 +531,7 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 detail_parts.push(format!("signal: {}%", net.strength));
 
                 // Security with warning if weak
-                let warning = if net.weak_security { " (⚠ weak)" } else { "" };
+                let warning = if net.weak_security { " (⚠ insecure)" } else { "" };
                 detail_parts.push(format!("security: {}{}", net.security, warning));
 
                 // Known status
@@ -555,9 +555,9 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                     }
 
                     match net.autoconnect {
-                        Some(true) => advanced_parts.push("auto-connect: on".to_string()),
-                        Some(false) => advanced_parts.push("auto-connect: off".to_string()),
-                        None => advanced_parts.push("auto-connect: default".to_string()),
+                        Some(true) => advanced_parts.push("auto-connect: on (A to toggle)".to_string()),
+                        Some(false) => advanced_parts.push("auto-connect: off (A to toggle)".to_string()),
+                        None => advanced_parts.push("auto-connect: default (A to toggle)".to_string()),
                     }
 
                     match net.autoconnect_retries {

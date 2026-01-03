@@ -21,6 +21,7 @@ pub enum NetCmd {
     Connect(String, String), // SSID, Password
     Disconnect,
     Forget(String), // SSID
+    ToggleAutoconnect(String), // SSID
 }
 
 #[tokio::main]
@@ -119,6 +120,24 @@ async fn main() -> Result<()> {
                                 }
                             }
                         },
+                        NetCmd::ToggleAutoconnect(ssid) => {
+                            match client.toggle_autoconnect(&ssid) {
+                                Ok(_) => {
+                                    let _ = tx_net.blocking_send(Msg::AutoconnectSuccess);
+                                    // Trigger rescan to update network list with new autoconnect status
+                                    if let Ok(nets) = client.get_wifi_networks() {
+                                        let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = tx_net.blocking_send(Msg::AutoconnectFailure(e.to_string()));
+                                    // Trigger rescan to ensure UI reflects actual state
+                                    if let Ok(nets) = client.get_wifi_networks() {
+                                        let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                    }
+                                }
+                            }
+                        },
                     }
                 }
             }
@@ -176,6 +195,9 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Char('f') => {
                                 let _ = tx_input.blocking_send(Msg::ConfirmForget);
+                            }
+                            KeyCode::Char('a') | KeyCode::Char('A') => {
+                                let _ = tx_input.blocking_send(Msg::ToggleAutoconnect);
                             }
                             _ => {}
                         },
@@ -355,6 +377,24 @@ async fn main() -> Result<()> {
                             let _ = net_tx.send(NetCmd::Connect(ssid, String::new())).await;
                         }
                     }
+                }
+                Msg::ToggleAutoconnect => {
+                    // Only toggle autoconnect when detail view is active (d_pressed)
+                    if app.d_pressed {
+                        // Only toggle autoconnect for known networks
+                        if let Some(net) = app.networks.get(app.selected_index) {
+                            if net.known {
+                                let ssid = net.ssid.clone();
+                                app.update(Msg::ToggleAutoconnect);
+                                let _ = net_tx.send(NetCmd::ToggleAutoconnect(ssid)).await;
+                            } else {
+                                // Show error if network is not known
+                                app.input_mode = InputMode::Error;
+                                app.error_message = Some("Cannot toggle auto-connect: network is not saved/known. Connect to it first.".to_string());
+                            }
+                        }
+                    }
+                    // If detail view is not active, ignore the key press silently
                 }
                 _ => {
                     app.update(msg);

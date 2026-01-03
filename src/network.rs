@@ -51,6 +51,26 @@ impl NetworkClient {
         Ok(Self { connection })
     }
 
+    fn get_connection_autoconnect(&self, ssid: &str) -> Option<bool> {
+        // TODO: using nmcli is gross but alas could not get the dbus implementation to work correctly
+        // Use nmcli to read autoconnect reliably
+        let output = std::process::Command::new("nmcli")
+            .args(&["-g", "connection.autoconnect", "connection", "show", ssid])
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+            match value.as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => Some(true), // default
+            }
+        } else {
+            Some(true) // default on error
+        }
+    }
+
     fn get_saved_connections(&self) -> Result<Vec<SavedConnection>> {
         let settings_proxy = self.connection.with_proxy(
             NM_BUS_NAME,
@@ -106,17 +126,8 @@ impl NetworkClient {
                                             .and_then(|v| v.0.as_i64())
                                             .map(|p| p as i32);
 
-                                        // Get autoconnect (boolean stored in Variant)
-                                        let autoconnect = conn_settings
-                                            .get("autoconnect")
-                                            .and_then(|v| {
-                                                // Try as bool first
-                                                if let Some(b) = v.0.as_u64() {
-                                                    Some(b != 0)
-                                                } else {
-                                                    v.0.as_i64().map(|b| b != 0)
-                                                }
-                                            });
+                                        // Get autoconnect using nmcli
+                                        let autoconnect = self.get_connection_autoconnect(&ssid);
 
                                         // Get autoconnect-retries
                                         let autoconnect_retries = conn_settings
@@ -633,6 +644,30 @@ impl NetworkClient {
             } else {
                 return Err(anyhow::anyhow!("Failed to delete any connections for '{}'", ssid));
             }
+        }
+
+        Ok(())
+    }
+
+    pub fn toggle_autoconnect(&self, ssid: &str) -> Result<()> {
+        // TODO: using nmcli is gross but alas could not get the dbus implementation to work correctly
+
+        // Use nmcli exclusively for toggling autoconnect
+        // Get current value first
+        let current = self.get_connection_autoconnect(ssid).unwrap_or(true);
+
+        // Toggle to opposite value
+        let new_value = if current { "no" } else { "yes" };
+
+        // Use nmcli to modify the connection
+        let output = std::process::Command::new("nmcli")
+            .args(&["connection", "modify", ssid, "connection.autoconnect", new_value])
+            .output()
+            .context("Failed to execute nmcli")?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("Failed to toggle autoconnect: {}", error));
         }
 
         Ok(())
