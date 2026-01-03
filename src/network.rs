@@ -352,7 +352,9 @@ impl NetworkClient {
       .output()
       .context("Failed to execute nmcli")?;
 
-    if output.status.success() {
+    // In some cases, eg RSN networks, nmcli does not create a network profile after a failed connection attempt. We
+    // consider a forgetting successful as long as no network profile exists afterwards.
+    if output.status.success() || String::from_utf8_lossy(&output.stderr).contains("cannot delete unknown connection") {
       Ok(())
     } else {
       Err(anyhow::anyhow!("Failed to forget network: {:?}", output))
