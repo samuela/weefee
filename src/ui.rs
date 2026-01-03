@@ -471,7 +471,6 @@ fn draw_header(
   };
 
   let header_text = if let Some(info) = device_info {
-    // TODO: make the disabled thing a bit louder, eg with emojis or color change
     let enabled_status = if info.wifi_enabled { "enabled" } else { "disabled" };
     let connected = networks.iter().any(|n| n.active);
     let connection_status = if connected { "connected" } else { "not connected" };

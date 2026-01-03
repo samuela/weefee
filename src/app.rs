@@ -147,7 +147,6 @@ impl App {
         // TODO: should we use some other kind of network ID?
         if let Some(net) = focused_network {
           // Try to find the previously selected network in the new list
-          // TODO: should compare on id here?
           list_state.select(new_networks.iter().position(|n| n.ssid == net.ssid));
         } else {
           list_state.select_first();
