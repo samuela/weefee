@@ -58,7 +58,7 @@ pub enum AppState {
     throbber_state: ThrobberState,
   },
   /// Displaying an error message
-  ShowingError { message: String },
+  ShowingError { message: String }, // TODO: make this anyhow::Error
   /// Confirming disconnect from active network
   ConfirmDisconnect { network: WifiInfo },
   /// Confirming forgetting a known network

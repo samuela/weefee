@@ -343,35 +343,33 @@ async fn main() -> Result<()> {
           app = App::ShouldQuit;
         }
         Msg::SubmitConnection => {
-          // Capture password before updating state
-          let password = if let App::Running {
+          // This logic is cursed, and we should refactor the entire UI framework/setup to make this suck less
+
+          // Capture password and whether we're coming from EditingPassword BEFORE updating state
+          let (password, was_editing) = if let App::Running {
             state: AppState::EditingPassword { password_input, .. },
             ..
           } = &app
           {
-            password_input.value().to_string()
+            (password_input.value().to_string(), true)
           } else {
-            String::new()
+            (String::new(), false)
           };
 
           if let Some(net) = app.focused_network() {
             app.update(Msg::SubmitConnection);
 
-            // If we're now in Connecting mode, it means it's a known insecure network
-            // and we should connect with empty password (stored password will be used)
-            if let App::Running {
-              state: AppState::Connecting {
-                ssid: connecting_ssid, ..
-              },
+            // If we were editing a password, use that password
+            // Otherwise (known network or weak security confirmation), use empty password
+            // (NetworkManager will use the stored credentials)
+            if was_editing {
+              let _ = net_tx.send(NetCmd::Connect(net.ssid, password)).await;
+            } else if let App::Running {
+              state: AppState::Connecting { ssid, .. },
               ..
             } = &app
             {
-              let _ = net_tx
-                .send(NetCmd::Connect(connecting_ssid.clone(), String::new()))
-                .await;
-            } else {
-              // Otherwise, we're connecting with the entered password
-              let _ = net_tx.send(NetCmd::Connect(net.ssid, password)).await;
+              let _ = net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await;
             }
           }
         }
