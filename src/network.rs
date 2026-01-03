@@ -339,11 +339,10 @@ impl NetworkClient {
     for device in devices {
       if let Device::WiFi(wifi_device) = device {
         wifi_device.disconnect().context("Failed to disconnect")?;
-        return Ok(());
       }
     }
 
-    Err(anyhow::anyhow!("No WiFi device found"))
+    Ok(())
   }
 
   pub fn forget_network(&self, ssid: &str) -> Result<()> {
@@ -353,12 +352,11 @@ impl NetworkClient {
       .output()
       .context("Failed to execute nmcli")?;
 
-    if !output.status.success() {
-      let error = String::from_utf8_lossy(&output.stderr);
-      return Err(anyhow::anyhow!("Failed to forget network: {}", error));
+    if output.status.success() {
+      Ok(())
+    } else {
+      Err(anyhow::anyhow!("Failed to forget network: {:?}", output))
     }
-
-    Ok(())
   }
 
   pub fn toggle_autoconnect(&self, ssid: &str) -> Result<()> {
@@ -378,12 +376,11 @@ impl NetworkClient {
       .output()
       .context("Failed to execute nmcli")?;
 
-    if !output.status.success() {
-      let error = String::from_utf8_lossy(&output.stderr);
-      return Err(anyhow::anyhow!("Failed to toggle autoconnect: {}", error));
+    if output.status.success() {
+      Ok(())
+    } else {
+      return Err(anyhow::anyhow!("Failed to toggle autoconnect: {:?}", output));
     }
-
-    Ok(())
   }
 }
 
