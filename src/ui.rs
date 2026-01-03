@@ -2,7 +2,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
 };
 use throbber_widgets_tui::{CANADIAN, Throbber, WhichUse};
 
@@ -204,7 +204,58 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             ];
 
             let message = Paragraph::new(message_lines)
-                .style(Style::default().fg(Color::White));
+                .style(Style::default().fg(Color::White))
+                .wrap(Wrap { trim: true });
+            f.render_widget(message, inner_area);
+        }
+        InputMode::ConfirmForget => {
+            let network = app.networks.get(app.selected_index);
+            let ssid = network.map(|n| n.ssid.as_str()).unwrap_or("Unknown");
+            let is_active = network.map(|n| n.active).unwrap_or(false);
+
+            let block = Block::default()
+                .title("Forget Network")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().fg(Color::Red));
+            let area = centered_rect(60, 25, f.area());
+            f.render_widget(Clear, area);
+            f.render_widget(block, area);
+
+            let inner_area = Rect {
+                x: area.x + 1,
+                y: area.y + 1,
+                width: area.width.saturating_sub(2),
+                height: area.height.saturating_sub(2),
+            };
+
+            use ratatui::text::{Line, Span};
+            let mut message_lines = vec![
+                Line::from(vec![
+                    Span::raw("Forget network "),
+                    Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw("?"),
+                ]),
+                Line::from(""),
+            ];
+
+            if is_active {
+                message_lines.push(Line::from("This will disconnect and remove the saved password and settings."));
+            } else {
+                message_lines.push(Line::from("This will remove the saved password and settings."));
+            }
+
+            message_lines.push(Line::from(""));
+            message_lines.push(Line::from(vec![
+                Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw("es / "),
+                Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw("o"),
+            ]));
+
+            let message = Paragraph::new(message_lines)
+                .style(Style::default().fg(Color::White))
+                .wrap(Wrap { trim: true });
             f.render_widget(message, inner_area);
         }
         InputMode::Error => {
@@ -228,7 +279,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
             let message =
                 Paragraph::new(format!("{}\n\nPress Enter or Esc to dismiss.", error_msg))
-                    .style(Style::default().fg(Color::White));
+                    .style(Style::default().fg(Color::White))
+                    .wrap(Wrap { trim: true });
             f.render_widget(message, inner_area);
         }
     }

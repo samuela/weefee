@@ -573,6 +573,42 @@ impl NetworkClient {
 
         Ok(())
     }
+
+    pub fn forget_network(&self, ssid: &str) -> Result<()> {
+        // Get saved connections
+        let saved_connections = self.get_saved_connections()?;
+
+        // Find ALL connections for this SSID (there might be multiple)
+        let connections_to_delete: Vec<_> = saved_connections
+            .iter()
+            .filter(|c| c.ssid == ssid)
+            .collect();
+
+        if connections_to_delete.is_empty() {
+            return Err(anyhow::anyhow!("Network '{}' not found in saved connections", ssid));
+        }
+
+        // Delete all matching connections
+        let mut deleted_count = 0;
+        let mut last_error = None;
+
+        for connection in connections_to_delete {
+            match self.delete_connection(&connection.path) {
+                Ok(_) => deleted_count += 1,
+                Err(e) => last_error = Some(e),
+            }
+        }
+
+        if deleted_count == 0 {
+            if let Some(err) = last_error {
+                return Err(err);
+            } else {
+                return Err(anyhow::anyhow!("Failed to delete any connections for '{}'", ssid));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn decode_security(wpa: u32, rsn: u32) -> (String, bool) {

@@ -30,6 +30,10 @@ pub enum Msg {
     SubmitDisconnect,
     DisconnectSuccess,
     DisconnectFailure(String),
+    ConfirmForget,
+    SubmitForget,
+    ForgetSuccess,
+    ForgetFailure(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -39,6 +43,7 @@ pub enum InputMode {
     Connecting,
     Error,
     ConfirmDisconnect,
+    ConfirmForget,
 }
 
 pub struct App {
@@ -251,6 +256,19 @@ impl App {
             Msg::DisconnectFailure(error) => {
                 self.input_mode = InputMode::Error;
                 self.error_message = Some(format!("Disconnect failed: {}", error));
+            }
+            Msg::ConfirmForget => {
+                self.input_mode = InputMode::ConfirmForget;
+            }
+            Msg::SubmitForget => {
+                self.input_mode = InputMode::Normal;
+            }
+            Msg::ForgetSuccess => {
+                self.input_mode = InputMode::Normal;
+            }
+            Msg::ForgetFailure(error) => {
+                self.input_mode = InputMode::Error;
+                self.error_message = Some(format!("Failed to forget network: {}", error));
             }
         }
     }

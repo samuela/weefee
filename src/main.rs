@@ -20,6 +20,7 @@ pub enum NetCmd {
     Scan,
     Connect(String, String), // SSID, Password
     Disconnect,
+    Forget(String), // SSID
 }
 
 #[tokio::main]
@@ -102,6 +103,22 @@ async fn main() -> Result<()> {
                                 }
                             }
                         },
+                        NetCmd::Forget(ssid) => match client.forget_network(&ssid) {
+                            Ok(_) => {
+                                let _ = tx_net.blocking_send(Msg::ForgetSuccess);
+                                // Trigger rescan to update network list
+                                if let Ok(nets) = client.get_wifi_networks() {
+                                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx_net.blocking_send(Msg::ForgetFailure(e.to_string()));
+                                // Trigger rescan to ensure UI reflects actual state
+                                if let Ok(nets) = client.get_wifi_networks() {
+                                    let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
+                                }
+                            }
+                        },
                     }
                 }
             }
@@ -153,6 +170,9 @@ async fn main() -> Result<()> {
                             }
                             KeyCode::Enter => {
                                 let _ = tx_input.blocking_send(Msg::EnterInput);
+                            }
+                            KeyCode::Char('f') => {
+                                let _ = tx_input.blocking_send(Msg::ConfirmForget);
                             }
                             _ => {}
                         },
@@ -226,6 +246,18 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
+                        InputMode::ConfirmForget => match key.code {
+                            KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                let _ = tx_input.blocking_send(Msg::SubmitForget);
+                            }
+                            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                                let _ = tx_input.blocking_send(Msg::CancelInput);
+                            }
+                            KeyCode::Char('c') if key.modifiers == KeyModifiers::CONTROL => {
+                                let _ = tx_input.blocking_send(Msg::Quit);
+                            }
+                            _ => {}
+                        },
                     }
                 }
             } else {
@@ -267,6 +299,26 @@ async fn main() -> Result<()> {
                 Msg::SubmitDisconnect => {
                     app.update(Msg::SubmitDisconnect);
                     let _ = net_tx.send(NetCmd::Disconnect).await;
+                }
+                Msg::ConfirmForget => {
+                    // Only show forget dialog if the network is known
+                    if let Some(net) = app.networks.get(app.selected_index) {
+                        if net.known {
+                            app.update(Msg::ConfirmForget);
+                        }
+                    }
+                }
+                Msg::SubmitForget => {
+                    // Capture network info before updating app state
+                    let network_to_forget = app.networks.get(app.selected_index).map(|n| (n.ssid.clone(), n.known));
+
+                    app.update(Msg::SubmitForget);
+
+                    if let Some((ssid, is_known)) = network_to_forget {
+                        if is_known {
+                            let _ = net_tx.send(NetCmd::Forget(ssid)).await;
+                        }
+                    }
                 }
                 Msg::EnterInput => {
                     app.update(Msg::EnterInput);
