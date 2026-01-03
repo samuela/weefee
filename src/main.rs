@@ -13,8 +13,20 @@ mod app;
 mod network;
 mod ui;
 
-use app::{App, InputMode, Msg};
+use app::{App, AppState, Msg};
 use network::NetworkClient;
+
+// Simplified enum for input handling - doesn't carry state data
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AppStateKind {
+    Normal,
+    Editing,
+    Connecting,
+    Error,
+    ConfirmDisconnect,
+    ConfirmForget,
+    ConfirmWeakSecurity,
+}
 
 pub enum NetCmd {
     Scan,
@@ -161,7 +173,7 @@ async fn main() -> Result<()> {
 
     // Input Task
     let tx_input = tx.clone();
-    let app_input_state = std::sync::Arc::new(std::sync::Mutex::new(InputMode::Normal));
+    let app_input_state = std::sync::Arc::new(std::sync::Mutex::new(AppStateKind::Normal));
     let app_input_state_clone = app_input_state.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -171,7 +183,7 @@ async fn main() -> Result<()> {
                 if let Event::Key(key) = event::read().unwrap() {
                     let mode = *app_input_state_clone.lock().unwrap();
                     match mode {
-                        InputMode::Normal => match key.code {
+                        AppStateKind::Normal => match key.code {
                             KeyCode::Char('d') => {
                                 let _ = tx_input.blocking_send(Msg::DPressed);
                             }
@@ -201,7 +213,7 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
-                        InputMode::Editing => match key.code {
+                        AppStateKind::Editing => match key.code {
                             KeyCode::Enter => {
                                 let _ = tx_input.blocking_send(Msg::SubmitConnection);
                             }
@@ -247,10 +259,10 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
-                        InputMode::Connecting => {
+                        AppStateKind::Connecting => {
                             // Ignore input while connecting
                         }
-                        InputMode::Error => match key.code {
+                        AppStateKind::Error => match key.code {
                             KeyCode::Enter | KeyCode::Esc => {
                                 let _ = tx_input.blocking_send(Msg::DismissError);
                             }
@@ -259,7 +271,7 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
-                        InputMode::ConfirmDisconnect => match key.code {
+                        AppStateKind::ConfirmDisconnect => match key.code {
                             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                                 let _ = tx_input.blocking_send(Msg::SubmitDisconnect);
                             }
@@ -271,7 +283,7 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
-                        InputMode::ConfirmForget => match key.code {
+                        AppStateKind::ConfirmForget => match key.code {
                             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                                 let _ = tx_input.blocking_send(Msg::SubmitForget);
                             }
@@ -283,7 +295,7 @@ async fn main() -> Result<()> {
                             }
                             _ => {}
                         },
-                        InputMode::ConfirmWeakSecurity => match key.code {
+                        AppStateKind::ConfirmWeakSecurity => match key.code {
                             KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
                                 let _ = tx_input.blocking_send(Msg::SubmitConnection);
                             }
@@ -313,7 +325,15 @@ async fn main() -> Result<()> {
 
         // Sync input state for key handler
         if let Ok(mut mode) = app_input_state.lock() {
-            *mode = app.input_mode;
+            *mode = match &app.state {
+                AppState::Normal => AppStateKind::Normal,
+                AppState::EditingPassword { .. } => AppStateKind::Editing,
+                AppState::Connecting { .. } => AppStateKind::Connecting,
+                AppState::ShowingError { .. } => AppStateKind::Error,
+                AppState::ConfirmDisconnect => AppStateKind::ConfirmDisconnect,
+                AppState::ConfirmForget => AppStateKind::ConfirmForget,
+                AppState::ConfirmWeakSecurity { .. } => AppStateKind::ConfirmWeakSecurity,
+            };
         }
 
         if let Some(msg) = rx.recv().await {
@@ -326,17 +346,21 @@ async fn main() -> Result<()> {
                     let _ = net_tx.send(NetCmd::Scan).await;
                 }
                 Msg::SubmitConnection => {
+                    // Capture password before updating state
+                    let password = if let AppState::EditingPassword { password_input, .. } = &app.state {
+                        password_input.value().to_string()
+                    } else {
+                        String::new()
+                    };
+
                     if let Some(net) = app.networks.get(app.selected_index) {
                         let ssid = net.ssid.clone();
-                        let password = app.password_input.value().to_string();
                         app.update(Msg::SubmitConnection);
 
                         // If we're now in Connecting mode, it means it's a known insecure network
                         // and we should connect with empty password (stored password will be used)
-                        if app.input_mode == InputMode::Connecting {
-                            if let Some(connecting_ssid) = app.connecting_ssid.clone() {
-                                let _ = net_tx.send(NetCmd::Connect(connecting_ssid, String::new())).await;
-                            }
+                        if let AppState::Connecting { ssid: connecting_ssid, .. } = &app.state {
+                            let _ = net_tx.send(NetCmd::Connect(connecting_ssid.clone(), String::new())).await;
                         } else {
                             // Otherwise, we're connecting with the entered password
                             let _ = net_tx.send(NetCmd::Connect(ssid, password)).await;
@@ -371,11 +395,9 @@ async fn main() -> Result<()> {
                     app.update(Msg::EnterInput);
                     // If we're now in Connecting mode, it means it's a known network
                     // and we should connect without asking for password
-                    if app.input_mode == InputMode::Connecting {
-                        if let Some(ssid) = app.connecting_ssid.clone() {
-                            // Empty password for known networks (stored password will be used)
-                            let _ = net_tx.send(NetCmd::Connect(ssid, String::new())).await;
-                        }
+                    if let AppState::Connecting { ssid, .. } = &app.state {
+                        // Empty password for known networks (stored password will be used)
+                        let _ = net_tx.send(NetCmd::Connect(ssid.clone(), String::new())).await;
                     }
                 }
                 Msg::ToggleAutoconnect => {
@@ -389,8 +411,9 @@ async fn main() -> Result<()> {
                                 let _ = net_tx.send(NetCmd::ToggleAutoconnect(ssid)).await;
                             } else {
                                 // Show error if network is not known
-                                app.input_mode = InputMode::Error;
-                                app.error_message = Some("Cannot toggle auto-connect: network is not saved/known. Connect to it first.".to_string());
+                                app.state = AppState::ShowingError {
+                                    message: "Cannot toggle auto-connect: network is not saved/known. Connect to it first.".to_string(),
+                                };
                             }
                         }
                     }

@@ -6,7 +6,7 @@ use ratatui::{
 };
 use throbber_widgets_tui::{CANADIAN, Throbber, WhichUse};
 
-use crate::app::{App, InputMode};
+use crate::app::{App, AppState};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -17,12 +17,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    let is_dialog_open = !matches!(app.input_mode, InputMode::Normal);
+    let is_dialog_open = !matches!(app.state, AppState::Normal);
     draw_header(f, app, chunks[0], is_dialog_open);
     draw_network_list(f, app, chunks[1], is_dialog_open);
 
-    match app.input_mode {
-        InputMode::Editing => {
+    match &mut app.state {
+        AppState::EditingPassword { password_input, error_message } => {
             // Get the SSID we're connecting to
             let ssid = app
                 .networks
@@ -66,7 +66,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             current_y += 3;
 
             // Show error message if present in a separate block
-            if let Some(error) = &app.password_error {
+            if let Some(error) = error_message {
                 let error_block = Block::default()
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
@@ -115,19 +115,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 height: 1,
             };
 
-            let scroll = app.password_input.visual_scroll(inner_area.width as usize);
-            let input_widget = Paragraph::new(app.password_input.value())
+            let scroll = password_input.visual_scroll(inner_area.width as usize);
+            let input_widget = Paragraph::new(password_input.value())
                 .style(Style::default().fg(Color::Yellow))
                 .scroll((0, scroll as u16));
             f.render_widget(input_widget, inner_area);
 
             // Set cursor position
             f.set_cursor_position((
-                inner_area.x + ((app.password_input.visual_cursor()).max(scroll) - scroll) as u16,
+                inner_area.x + ((password_input.visual_cursor()).max(scroll) - scroll) as u16,
                 inner_area.y,
             ));
         }
-        InputMode::Connecting => {
+        AppState::Connecting { throbber_state, .. } => {
             let block = Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
@@ -161,10 +161,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 )
                 .throbber_set(CANADIAN)
                 .use_type(WhichUse::Spin);
-            f.render_stateful_widget(throbber, throbber_area, &mut app.throbber_state);
+            f.render_stateful_widget(throbber, throbber_area, throbber_state);
         }
-        InputMode::Normal => {}
-        InputMode::ConfirmDisconnect => {
+        AppState::Normal => {}
+        AppState::ConfirmDisconnect => {
             let ssid = app
                 .networks
                 .get(app.selected_index)
@@ -208,7 +208,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 .wrap(Wrap { trim: true });
             f.render_widget(message, inner_area);
         }
-        InputMode::ConfirmForget => {
+        AppState::ConfirmForget => {
             let network = app.networks.get(app.selected_index);
             let ssid = network.map(|n| n.ssid.as_str()).unwrap_or("Unknown");
             let is_active = network.map(|n| n.active).unwrap_or(false);
@@ -258,19 +258,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 .wrap(Wrap { trim: true });
             f.render_widget(message, inner_area);
         }
-        InputMode::ConfirmWeakSecurity => {
-            // Use captured network info to prevent it from changing during refreshes
-            let ssid = app.weak_security_ssid.as_deref().unwrap_or("Unknown");
-            let security = app.weak_security_type.as_deref().unwrap_or("Unknown");
+        AppState::ConfirmWeakSecurity { ssid, security_type } => {
 
             use ratatui::text::{Line, Span};
             let mut message_lines = vec![];
 
             // Distinguish between no security and weak security
-            if security == "Open" {
+            if security_type == "Open" {
                 message_lines.push(Line::from(vec![
                     Span::raw("Network "),
-                    Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(ssid.as_str(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::raw(" has "),
                     Span::styled("no security", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                     Span::raw(". Anyone can intercept your data."),
@@ -279,13 +276,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 // Weak security (WEP or similar)
                 message_lines.push(Line::from(vec![
                     Span::raw("Network "),
-                    Span::styled(ssid, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(ssid.as_str(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::raw(" uses "),
-                    Span::styled(security, Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                    Span::styled(security_type.as_str(), Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                     Span::raw("."),
                 ]));
 
-                if security.contains("WEP") {
+                if security_type.contains("WEP") {
                     message_lines.push(Line::from("WEP is outdated and can be cracked in minutes. Your data can be easily intercepted by attackers."));
                 } else {
                     message_lines.push(Line::from("This encryption method is outdated and insecure. Your data may be vulnerable to interception."));
@@ -344,8 +341,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 f.render_widget(prompt_widget, layout[1]);
             }
         }
-        InputMode::Error => {
-            let error_msg = app.error_message.as_deref().unwrap_or("Unknown error");
+        AppState::ShowingError { message } => {
             let block = Block::default()
                 .title("Error")
                 .borders(Borders::ALL)
@@ -363,11 +359,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 height: area.height.saturating_sub(2),
             };
 
-            let message =
-                Paragraph::new(format!("{}\n\nPress Enter or Esc to dismiss.", error_msg))
+            let error_display =
+                Paragraph::new(format!("{}\n\nPress Enter or Esc to dismiss.", message))
                     .style(Style::default().fg(Color::White))
                     .wrap(Wrap { trim: true });
-            f.render_widget(message, inner_area);
+            f.render_widget(error_display, inner_area);
         }
     }
 }

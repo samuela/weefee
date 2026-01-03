@@ -39,15 +39,37 @@ pub enum Msg {
     AutoconnectFailure(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum InputMode {
+/// Represents the different modal states of the application.
+/// This enum makes illegal states unrepresentable by associating
+/// state-specific data directly with each variant.
+#[derive(Debug)]
+pub enum AppState {
+    /// Normal browsing mode - user can navigate the network list
     Normal,
-    Editing,
-    Connecting,
-    Error,
+    /// Editing password for a network connection
+    EditingPassword {
+        password_input: Input,
+        /// Error message if password was incorrect
+        error_message: Option<String>,
+    },
+    /// Currently connecting to a network
+    Connecting {
+        ssid: String,
+        throbber_state: ThrobberState,
+    },
+    /// Displaying an error message
+    ShowingError {
+        message: String,
+    },
+    /// Confirming disconnect from active network
     ConfirmDisconnect,
+    /// Confirming forgetting a known network
     ConfirmForget,
-    ConfirmWeakSecurity,
+    /// Confirming connection to a network with weak/no security
+    ConfirmWeakSecurity {
+        ssid: String,
+        security_type: String,
+    },
 }
 
 pub struct App {
@@ -58,15 +80,8 @@ pub struct App {
     pub is_scanning: bool,
     pub active_ssid: Option<String>,
     pub device_info: Option<WifiDeviceInfo>,
-    pub input_mode: InputMode,
-    pub password_input: Input,
-    pub connecting_ssid: Option<String>,
-    pub password_error: Option<String>,
-    pub error_message: Option<String>,
-    pub throbber_state: ThrobberState,
+    pub state: AppState,
     pub d_pressed: bool,
-    pub weak_security_ssid: Option<String>,
-    pub weak_security_type: Option<String>,
 }
 
 impl App {
@@ -81,23 +96,16 @@ impl App {
             is_scanning: false,
             active_ssid: None,
             device_info: None,
-            input_mode: InputMode::Normal,
-            password_input: Input::default(),
-            connecting_ssid: None,
-            password_error: None,
-            error_message: None,
-            throbber_state: ThrobberState::default(),
+            state: AppState::Normal,
             d_pressed: false,
-            weak_security_ssid: None,
-            weak_security_type: None,
         }
     }
 
     pub fn update(&mut self, msg: Msg) {
         match msg {
             Msg::Tick => {
-                if self.input_mode == InputMode::Connecting {
-                    self.throbber_state.calc_next();
+                if let AppState::Connecting { throbber_state, .. } = &mut self.state {
+                    throbber_state.calc_next();
                 }
             }
             Msg::Quit => self.should_quit = true,
@@ -150,16 +158,14 @@ impl App {
                         self.list_state.select(Some(new_index));
                     } else {
                         // Network disappeared - show error if password dialog was open
-                        if self.input_mode == InputMode::Editing {
-                            self.input_mode = InputMode::Error;
-                            self.error_message =
-                                Some(format!("Network \"{}\" is no longer available.", ssid));
-                            self.password_input.reset();
-                            self.password_error = None;
+                        if matches!(self.state, AppState::EditingPassword { .. }) {
+                            self.state = AppState::ShowingError {
+                                message: format!("Network \"{}\" is no longer available.", ssid),
+                            };
                         }
 
                         // If a dialog is open, deselect everything (user will need to reselect)
-                        if self.input_mode != InputMode::Normal {
+                        if !matches!(self.state, AppState::Normal) {
                             self.selected_index = 0;
                             self.list_state.select(None);
                         } else {
@@ -182,141 +188,147 @@ impl App {
                 }
             }
             Msg::Error(e) => {
-                self.error_message = Some(e);
-                self.input_mode = InputMode::Error;
+                self.state = AppState::ShowingError { message: e };
                 self.is_scanning = false;
             }
             Msg::DismissError => {
-                self.error_message = None;
-                self.input_mode = InputMode::Normal;
+                self.state = AppState::Normal;
             }
             Msg::EnterInput => {
                 if let Some(net) = self.networks.get(self.selected_index) {
                     // If network is active (connected), show disconnect confirmation
                     if net.active {
-                        self.input_mode = InputMode::ConfirmDisconnect;
+                        self.state = AppState::ConfirmDisconnect;
                     } else if net.weak_security {
                         // Show warning for insecure networks before connecting (even if known)
-                        // Capture network info to prevent it from changing during refreshes
-                        self.weak_security_ssid = Some(net.ssid.clone());
-                        self.weak_security_type = Some(net.security.clone());
-                        self.input_mode = InputMode::ConfirmWeakSecurity;
+                        self.state = AppState::ConfirmWeakSecurity {
+                            ssid: net.ssid.clone(),
+                            security_type: net.security.clone(),
+                        };
                     } else if net.known {
                         // Known secure network - connect directly without password prompt
-                        self.input_mode = InputMode::Connecting;
-                        let ssid = net.ssid.clone();
-                        self.connecting_ssid = Some(ssid);
+                        self.state = AppState::Connecting {
+                            ssid: net.ssid.clone(),
+                            throbber_state: ThrobberState::default(),
+                        };
                     } else {
                         // Unknown secure network - proceed to password input
-                        self.input_mode = InputMode::Editing;
-                        self.password_input.reset();
-                        self.password_error = None;
+                        self.state = AppState::EditingPassword {
+                            password_input: Input::default(),
+                            error_message: None,
+                        };
                     }
                 }
             }
             Msg::Input(c) => {
-                self.password_input
-                    .handle(tui_input::InputRequest::InsertChar(c));
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::InsertChar(c));
+                }
             }
             Msg::Backspace => {
-                self.password_input
-                    .handle(tui_input::InputRequest::DeletePrevChar);
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::DeletePrevChar);
+                }
             }
             Msg::MoveCursorLeft => {
-                self.password_input
-                    .handle(tui_input::InputRequest::GoToPrevChar);
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::GoToPrevChar);
+                }
             }
             Msg::MoveCursorRight => {
-                self.password_input
-                    .handle(tui_input::InputRequest::GoToNextChar);
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::GoToNextChar);
+                }
             }
             Msg::MoveCursorWordLeft => {
-                self.password_input
-                    .handle(tui_input::InputRequest::GoToPrevWord);
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::GoToPrevWord);
+                }
             }
             Msg::MoveCursorWordRight => {
-                self.password_input
-                    .handle(tui_input::InputRequest::GoToNextWord);
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::GoToNextWord);
+                }
             }
             Msg::DeletePrevWord => {
-                self.password_input
-                    .handle(tui_input::InputRequest::DeletePrevWord);
+                if let AppState::EditingPassword { password_input, .. } = &mut self.state {
+                    password_input.handle(tui_input::InputRequest::DeletePrevWord);
+                }
             }
             Msg::SubmitConnection => {
                 // If we're in ConfirmWeakSecurity mode, check if network is known
-                if self.input_mode == InputMode::ConfirmWeakSecurity {
+                if let AppState::ConfirmWeakSecurity { ssid, .. } = &self.state {
                     if let Some(net) = self.networks.get(self.selected_index) {
                         if net.known {
                             // Known insecure network - connect directly
-                            self.input_mode = InputMode::Connecting;
-                            self.connecting_ssid = Some(net.ssid.clone());
+                            self.state = AppState::Connecting {
+                                ssid: ssid.clone(),
+                                throbber_state: ThrobberState::default(),
+                            };
                         } else {
                             // Unknown insecure network - go to password input
-                            self.input_mode = InputMode::Editing;
-                            self.password_input.reset();
-                            self.password_error = None;
+                            self.state = AppState::EditingPassword {
+                                password_input: Input::default(),
+                                error_message: None,
+                            };
                         }
                     }
                 } else {
                     // Otherwise, we're submitting from Editing mode, so connect
-                    self.input_mode = InputMode::Connecting;
                     let ssid = self
                         .networks
                         .get(self.selected_index)
                         .map(|n| n.ssid.clone())
                         .unwrap_or_else(|| "Unknown".to_string());
-                    self.connecting_ssid = Some(ssid);
+                    self.state = AppState::Connecting {
+                        ssid,
+                        throbber_state: ThrobberState::default(),
+                    };
                 }
             }
             Msg::CancelInput => {
-                self.input_mode = InputMode::Normal;
-                self.password_input.reset();
-                self.password_error = None;
-                self.weak_security_ssid = None;
-                self.weak_security_type = None;
+                self.state = AppState::Normal;
             }
             Msg::ConnectionSuccess => {
-                self.input_mode = InputMode::Normal;
-                self.connecting_ssid = None;
-                self.password_error = None;
+                self.state = AppState::Normal;
             }
             Msg::ConnectionFailure(error) => {
                 // Special handling for password errors - return to password input
-                // TODO: move this into the type system
-                if error == "INCORRECT_PASSWORD" {
-                    self.input_mode = InputMode::Editing;
-                    self.connecting_ssid = None;
-                    self.password_input.reset();
-                    self.password_error = Some("Incorrect password. Try again.".to_string());
+                if error.contains("INCORRECT_PASSWORD") {
+                    self.state = AppState::EditingPassword {
+                        password_input: Input::default(),
+                        error_message: Some("Incorrect password. Try again.".to_string()),
+                    };
                 } else {
-                    self.input_mode = InputMode::Error;
-                    self.connecting_ssid = None;
-                    self.password_error = None;
-                    self.error_message = Some(format!("Connection failed: {}", error));
+                    self.state = AppState::ShowingError {
+                        message: format!("Connection failed: {}", error),
+                    };
                 }
             }
             Msg::SubmitDisconnect => {
-                self.input_mode = InputMode::Normal;
+                self.state = AppState::Normal;
             }
             Msg::DisconnectSuccess => {
-                self.input_mode = InputMode::Normal;
+                self.state = AppState::Normal;
             }
             Msg::DisconnectFailure(error) => {
-                self.input_mode = InputMode::Error;
-                self.error_message = Some(format!("Disconnect failed: {}", error));
+                self.state = AppState::ShowingError {
+                    message: format!("Disconnect failed: {}", error),
+                };
             }
             Msg::ConfirmForget => {
-                self.input_mode = InputMode::ConfirmForget;
+                self.state = AppState::ConfirmForget;
             }
             Msg::SubmitForget => {
-                self.input_mode = InputMode::Normal;
+                self.state = AppState::Normal;
             }
             Msg::ForgetSuccess => {
-                self.input_mode = InputMode::Normal;
+                self.state = AppState::Normal;
             }
             Msg::ForgetFailure(error) => {
-                self.input_mode = InputMode::Error;
-                self.error_message = Some(format!("Failed to forget network: {}", error));
+                self.state = AppState::ShowingError {
+                    message: format!("Failed to forget network: {}", error),
+                };
             }
             Msg::DPressed => {
                 self.d_pressed = !self.d_pressed;
@@ -328,8 +340,9 @@ impl App {
                 // Auto-connect setting changed successfully - rescan will update UI
             }
             Msg::AutoconnectFailure(error) => {
-                self.input_mode = InputMode::Error;
-                self.error_message = Some(format!("Failed to toggle auto-connect: {}", error));
+                self.state = AppState::ShowingError {
+                    message: format!("Failed to toggle auto-connect: {}", error),
+                };
             }
         }
     }
