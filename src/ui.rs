@@ -30,12 +30,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([
             Constraint::Length(3), // Header
             Constraint::Min(0),    // List
+            Constraint::Length(1), // Footer
         ])
         .split(f.area());
 
     let is_dialog_open = !matches!(state, AppState::Normal);
     draw_header(f, device_info, networks, chunks[0], is_dialog_open);
     draw_network_list(f, networks, *selected_index, list_state, *d_pressed, chunks[1], is_dialog_open);
+    draw_footer(f, chunks[2], is_dialog_open);
 
     match state {
         AppState::EditingPassword { password_input, error_message } => {
@@ -605,4 +607,22 @@ fn draw_network_list(f: &mut Frame, networks: &[WifiInfo], selected_index: usize
         );
 
     f.render_stateful_widget(list, area, list_state);
+}
+
+fn draw_footer(f: &mut Frame, area: Rect, is_dimmed: bool) {
+    use ratatui::text::Span;
+
+    let style = if is_dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let shortcuts = Span::styled(
+        "↑/↓: Navigate | Enter to dis/connect | D: Details | Q: Quit",
+        style
+    );
+
+    let footer = Paragraph::new(shortcuts);
+    f.render_widget(footer, area);
 }
