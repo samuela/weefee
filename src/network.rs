@@ -292,13 +292,13 @@ impl NetworkClient {
         .context("Failed to execute nmcli")?;
 
       if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        if error.contains("AlreadyActive") || error.contains("already active") {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("AlreadyActive") || stderr.contains("already active") {
           std::thread::sleep(Duration::from_millis(500));
           return Ok(());
         }
         // For known networks, keep the profile even if connection fails
-        return Err(anyhow::anyhow!("Failed to activate: {}", error));
+        return Err(anyhow::anyhow!("Failed to activate: {:?}", output));
       }
       Ok(())
     } else {
@@ -315,14 +315,12 @@ impl NetworkClient {
         .context("Failed to execute nmcli")?;
 
       if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-
         // For unknown networks that fail to connect, delete the connection profile
         // that was created by nmcli. This prevents the network from being marked
         // as "known" after a failed connection attempt.
         self.forget_network(ssid).context("failed to forget network")?;
 
-        Err(anyhow::anyhow!("Failed to connect: {}", error))
+        Err(anyhow::anyhow!("Failed to connect: {:?}", output))
       } else {
         // Wait a bit to let connection establish
         std::thread::sleep(Duration::from_millis(500));
