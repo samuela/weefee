@@ -24,7 +24,7 @@ pub enum Msg {
   SubmitConnection,
   CancelInput,
   ConnectionSuccess,
-  ConnectionFailure(String),
+  ConnectionFailure(anyhow::Error),
   SubmitDisconnect,
   DisconnectSuccess,
   DisconnectFailure(String),
@@ -259,7 +259,7 @@ impl App {
       }
       Msg::ConnectionFailure(error) => {
         *state = AppState::ShowingError {
-          message: format!("Connection failed: {}", error),
+          message: format!("Connection failed: {:?}", error),
         };
       }
       Msg::SubmitDisconnect => {

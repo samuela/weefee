@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
                 }
               }
               Err(e) => {
-                let _ = tx_net.blocking_send(Msg::ConnectionFailure(e.to_string()));
+                let _ = tx_net.blocking_send(Msg::ConnectionFailure(e));
                 // Trigger rescan to ensure UI reflects actual state
                 if let Ok(nets) = client.get_wifi_networks() {
                   let _ = tx_net.blocking_send(Msg::NetworksFound(nets));
