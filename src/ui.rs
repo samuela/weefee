@@ -2,13 +2,29 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use throbber_widgets_tui::{CANADIAN, Throbber, WhichUse};
 
 use crate::app::{App, AppState};
+use crate::network::WifiDeviceInfo;
+use crate::network::WifiInfo;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
+    // Early return if app is quitting
+    let App::Running {
+        networks,
+        selected_index,
+        list_state,
+        is_scanning: _,
+        active_ssid: _,
+        device_info,
+        state,
+        d_pressed,
+    } = app else {
+        return;
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -17,16 +33,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    let is_dialog_open = !matches!(app.state, AppState::Normal);
-    draw_header(f, app, chunks[0], is_dialog_open);
-    draw_network_list(f, app, chunks[1], is_dialog_open);
+    let is_dialog_open = !matches!(state, AppState::Normal);
+    draw_header(f, device_info, networks, chunks[0], is_dialog_open);
+    draw_network_list(f, networks, *selected_index, list_state, *d_pressed, chunks[1], is_dialog_open);
 
-    match &mut app.state {
+    match state {
         AppState::EditingPassword { password_input, error_message } => {
             // Get the SSID we're connecting to
-            let ssid = app
-                .networks
-                .get(app.selected_index)
+            let ssid = networks
+                .get(*selected_index)
                 .map(|n| n.ssid.as_str())
                 .unwrap_or("Unknown");
 
@@ -165,9 +180,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
         AppState::Normal => {}
         AppState::ConfirmDisconnect => {
-            let ssid = app
-                .networks
-                .get(app.selected_index)
+            let ssid = networks
+                .get(*selected_index)
                 .map(|n| n.ssid.as_str())
                 .unwrap_or("Unknown");
 
@@ -209,7 +223,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             f.render_widget(message, inner_area);
         }
         AppState::ConfirmForget => {
-            let network = app.networks.get(app.selected_index);
+            let network = networks.get(*selected_index);
             let ssid = network.map(|n| n.ssid.as_str()).unwrap_or("Unknown");
             let is_active = network.map(|n| n.active).unwrap_or(false);
 
@@ -400,11 +414,11 @@ fn centered_rect_fixed(width: u16, height: u16, r: Rect) -> Rect {
     }
 }
 
-fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
+fn draw_header(f: &mut Frame, device_info: &Option<WifiDeviceInfo>, networks: &[WifiInfo], area: Rect, is_dimmed: bool) {
     // Check if WiFi is disabled
-    let wifi_disabled = app.device_info.as_ref().map_or(false, |info| !info.wifi_enabled);
+    let wifi_disabled = device_info.as_ref().map_or(false, |info| !info.wifi_enabled);
     // Check if we're connected to any network
-    let is_connected = app.networks.iter().any(|n| n.active);
+    let is_connected = networks.iter().any(|n| n.active);
 
     let style = if wifi_disabled {
         // WiFi is disabled - use red color
@@ -437,10 +451,10 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
         Style::default()
     };
 
-    let header_text = if let Some(info) = &app.device_info {
+    let header_text = if let Some(info) = device_info {
         // TODO: make the disabled thing a bit louder, eg with emojis or color change
         let enabled_status = if info.wifi_enabled { "enabled" } else { "disabled" };
-        let connected = app.networks.iter().any(|n| n.active);
+        let connected = networks.iter().any(|n| n.active);
         let connection_status = if connected { "connected" } else { "not connected" };
         format!("WeeFee | WiFi {}, {}", enabled_status, connection_status)
     } else {
@@ -458,17 +472,16 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect, is_dimmed: bool) {
     f.render_widget(text, area);
 }
 
-fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) {
+fn draw_network_list(f: &mut Frame, networks: &[WifiInfo], selected_index: usize, list_state: &mut ListState, d_pressed: bool, area: Rect, is_dimmed: bool) {
     use ratatui::text::{Line, Span};
 
-    let items: Vec<ListItem> = app
-        .networks
+    let items: Vec<ListItem> = networks
         .iter()
         .enumerate()
         .map(|(i, net)| {
             let main_style = if is_dimmed {
                 Style::default().fg(Color::DarkGray)
-            } else if i == app.selected_index {
+            } else if i == selected_index {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -476,7 +489,7 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 Style::default()
             };
 
-            let prefix = if i == app.selected_index { "→ " } else { "  " };
+            let prefix = if i == selected_index { "→ " } else { "  " };
             // let active_marker = if net.active { "🛜 " } else { "   " };
             // let active_marker = if net.active { "● " } else { "  " };
             // let active_marker = if net.active { "🌐 " } else { "   " };
@@ -502,7 +515,7 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 Style::default().fg(Color::DarkGray)
             };
 
-            if app.d_pressed {
+            if d_pressed {
                 // Multi-line format: network name on first line, details on subsequent lines
                 let mut lines = vec![
                     // First line: prefix, active marker, signal, and SSID
@@ -589,5 +602,5 @@ fn draw_network_list(f: &mut Frame, app: &mut App, area: Rect, is_dimmed: bool) 
                 .style(block_style),
         );
 
-    f.render_stateful_widget(list, area, &mut app.list_state);
+    f.render_stateful_widget(list, area, list_state);
 }
