@@ -315,9 +315,6 @@ impl NetworkClient {
 
       if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
-        if error.contains("Secrets were required") || error.contains("802-1x") {
-          return Err(anyhow::anyhow!("INCORRECT_PASSWORD"));
-        }
         return Err(anyhow::anyhow!("Failed to connect: {}", error));
       }
 
