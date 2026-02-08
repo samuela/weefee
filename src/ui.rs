@@ -1,665 +1,433 @@
-use ratatui::{
-  Frame,
-  layout::{Constraint, Direction, Layout, Rect},
-  style::{Color, Modifier, Style},
-  widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
-};
-use throbber_widgets_tui::{CANADIAN, Throbber, WhichUse};
+//! UI components using ravel-tui declarative builders.
+
+use ratatui::layout::Constraint;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{BorderType, Borders, ListItem};
+use ravel::with;
+use ravel_tui::{any, block, input, list, modal, text, throbber, vstack, View};
 
 use crate::app::{App, AppState};
-use crate::network::WifiDeviceInfo;
-use crate::network::WifiInfo;
+use crate::network::{WifiDeviceInfo, WifiInfo};
 
-pub fn draw(f: &mut Frame, app: &mut App) {
-  // Early return if app is quitting
-  let App::Running {
-    networks,
-    list_state,
-    device_info,
-    state,
-    show_detailed_view,
-  } = app
-  else {
-    return;
-  };
+/// Main UI component - composes header, network list, footer, and any dialogs.
+pub fn ui(app: &App) -> View!() {
+    with(move |cx| {
+        let App::Running {
+            networks,
+            list_state,
+            device_info,
+            state,
+            show_detailed_view,
+        } = app
+        else {
+            return cx.build(any(()));
+        };
 
-  let chunks = Layout::default()
-    .direction(Direction::Vertical)
-    .constraints([
-      Constraint::Length(3), // Header
-      Constraint::Min(0),    // List
-      Constraint::Length(1), // Footer
-    ])
-    .split(f.area());
+        let is_dialog_open = !matches!(state, AppState::Normal);
 
-  let is_dialog_open = !matches!(state, AppState::Normal);
-  draw_header(f, device_info, networks, chunks[0], is_dialog_open);
-  draw_network_list(f, networks, list_state, *show_detailed_view, chunks[1], is_dialog_open);
-  draw_footer(f, chunks[2], is_dialog_open);
-
-  match state {
-    AppState::EditingPassword {
-      network,
-      password_input,
-    } => {
-      // Calculate base position for all blocks
-      let base_area = centered_rect_fixed(50, 3, f.area());
-      let mut current_y = base_area.y;
-
-      // SSID info block at the top
-      let ssid_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded);
-      let ssid_area = Rect {
-        x: base_area.x,
-        y: current_y,
-        width: base_area.width,
-        height: 3,
-      };
-      f.render_widget(Clear, ssid_area);
-      f.render_widget(ssid_block, ssid_area);
-
-      let ssid_inner = Rect {
-        x: ssid_area.x + 1,
-        y: ssid_area.y + 1,
-        width: ssid_area.width.saturating_sub(2),
-        height: 1,
-      };
-
-      use ratatui::text::{Line, Span};
-      let ssid_text = Line::from(vec![
-        Span::raw("Connecting to "),
-        Span::styled(&network.ssid, Style::default().fg(Color::Yellow)),
-        Span::raw("..."),
-      ]);
-      let ssid_widget = Paragraph::new(ssid_text);
-      f.render_widget(ssid_widget, ssid_inner);
-
-      current_y += 3;
-
-      // Password input block
-      let password_block = Block::default()
-        .title("Password")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded);
-      let password_area = Rect {
-        x: base_area.x,
-        y: current_y,
-        width: base_area.width,
-        height: 3,
-      };
-      f.render_widget(Clear, password_area);
-      f.render_widget(password_block, password_area);
-
-      // Calculate inner area for the text input
-      let inner_area = Rect {
-        x: password_area.x + 1,
-        y: password_area.y + 1,
-        width: password_area.width.saturating_sub(2),
-        height: 1,
-      };
-
-      let scroll = password_input.visual_scroll(inner_area.width as usize);
-      let input_widget = Paragraph::new(password_input.value())
-        .style(Style::default().fg(Color::Yellow))
-        .scroll((0, scroll as u16));
-      f.render_widget(input_widget, inner_area);
-
-      // Set cursor position
-      f.set_cursor_position((
-        inner_area.x + ((password_input.visual_cursor()).max(scroll) - scroll) as u16,
-        inner_area.y,
-      ));
-    }
-    AppState::Connecting { throbber_state, .. } => {
-      let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(Color::Cyan));
-      let area = centered_rect_fixed(30, 3, f.area());
-      f.render_widget(Clear, area); // Clear background
-      f.render_widget(block, area);
-
-      // Calculate inner area with margin for the content
-      let inner_area = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-      };
-
-      // Throbber on first line
-      let throbber_area = Rect {
-        x: inner_area.x,
-        y: inner_area.y,
-        width: inner_area.width,
-        height: 1,
-      };
-      let throbber = Throbber::default()
-        .label("Connecting...")
-        .style(Style::default().fg(Color::Yellow))
-        .throbber_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-        .throbber_set(CANADIAN)
-        .use_type(WhichUse::Spin);
-      f.render_stateful_widget(throbber, throbber_area, throbber_state);
-    }
-    AppState::Normal => {}
-    AppState::ConfirmDisconnect { network } => {
-      let block = Block::default()
-        .title("Disconnect")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(Color::Yellow));
-      let area = centered_rect(60, 25, f.area());
-      f.render_widget(Clear, area);
-      f.render_widget(block, area);
-
-      let inner_area = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-      };
-
-      use ratatui::text::{Line, Span};
-
-      // Split inner area: message area (flexible) and prompt at bottom (1 line)
-      let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-          Constraint::Min(0),    // Message area
-          Constraint::Length(2), // Blank line + prompt
-        ])
-        .split(inner_area);
-
-      let message_lines = vec![Line::from(vec![
-        Span::raw("Disconnect from "),
-        Span::styled(
-          &network.ssid,
-          Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("?"),
-      ])];
-
-      let message = Paragraph::new(message_lines)
-        .style(Style::default().fg(Color::White))
-        .wrap(Wrap { trim: true });
-      f.render_widget(message, layout[0]);
-
-      // Render prompt at bottom, centered
-      let prompt_line = Line::from(vec![
-        Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw("es / "),
-        Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-        Span::raw("o"),
-      ]);
-      let prompt_widget = Paragraph::new(vec![Line::from(""), prompt_line])
-        .style(Style::default().fg(Color::White))
-        .alignment(ratatui::layout::Alignment::Center);
-      f.render_widget(prompt_widget, layout[1]);
-    }
-    AppState::ConfirmForget { network } => {
-      let block = Block::default()
-        .title("Forget Network")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(Color::Red));
-      let area = centered_rect(60, 25, f.area());
-      f.render_widget(Clear, area);
-      f.render_widget(block, area);
-
-      let inner_area = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-      };
-
-      use ratatui::text::{Line, Span};
-
-      // Split inner area: message area (flexible) and prompt at bottom (1 line)
-      let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-          Constraint::Min(0),    // Message area
-          Constraint::Length(2), // Blank line + prompt
-        ])
-        .split(inner_area);
-
-      let mut message_lines = vec![
-        Line::from(vec![
-          Span::raw("Forget network "),
-          Span::styled(
-            &network.ssid,
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-          ),
-          Span::raw("?"),
-        ]),
-        Line::from(""),
-      ];
-
-      if network.active {
-        message_lines.push(Line::from(
-          "This will disconnect and delete the saved password and settings.",
-        ));
-      } else {
-        message_lines.push(Line::from("This will delete the saved password and settings."));
-      }
-
-      let message = Paragraph::new(message_lines)
-        .style(Style::default().fg(Color::White))
-        .wrap(Wrap { trim: true });
-      f.render_widget(message, layout[0]);
-
-      // Render prompt at bottom, centered
-      let prompt_line = Line::from(vec![
-        Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw("es / "),
-        Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-        Span::raw("o"),
-      ]);
-      let prompt_widget = Paragraph::new(vec![Line::from(""), prompt_line])
-        .style(Style::default().fg(Color::White))
-        .alignment(ratatui::layout::Alignment::Center);
-      f.render_widget(prompt_widget, layout[1]);
-    }
-    AppState::ConfirmWeakSecurity { network } => {
-      use ratatui::text::{Line, Span};
-      let mut message_lines = vec![];
-
-      // Distinguish between no security and weak security
-      if network.security == "Open" {
-        message_lines.push(Line::from(vec![
-          Span::raw("Network "),
-          Span::styled(
-            network.ssid.as_str(),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-          ),
-          Span::raw(" has "),
-          Span::styled(
-            "no security",
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-          ),
-          Span::raw(". Anyone can intercept your data."),
-        ]));
-      } else {
-        // Weak security (WEP or similar)
-        message_lines.push(Line::from(vec![
-          Span::raw("Network "),
-          Span::styled(
-            network.ssid.as_str(),
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-          ),
-          Span::raw(" uses "),
-          Span::styled(
-            network.security.as_str(),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-          ),
-          Span::raw("."),
-        ]));
-
-        if network.security.contains("WEP") {
-          message_lines.push(Line::from(
-            "WEP is outdated and can be cracked in minutes. Your data can be easily intercepted by attackers.",
-          ));
-        } else {
-          message_lines.push(Line::from(
-            "This encryption method is outdated and insecure. Your data may be vulnerable to interception.",
-          ));
-        }
-      }
-
-      message_lines.push(Line::from(""));
-      message_lines.push(Line::from(vec![
-        Span::styled("Continue anyway? ", Style::default().fg(Color::White)),
-        Span::styled("Y", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw("es / "),
-        Span::styled("N", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-        Span::raw("o"),
-      ]));
-
-      let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(Color::Red));
-
-      let area = centered_rect(70, 30, f.area());
-      f.render_widget(Clear, area);
-      f.render_widget(block, area);
-
-      let inner_area = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-      };
-
-      // Split inner area: message area (flexible) and prompt at bottom (1 line)
-      let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-          Constraint::Min(0),    // Message area
-          Constraint::Length(2), // Blank line + prompt
-        ])
-        .split(inner_area);
-
-      // Remove the last two lines from message_lines (blank line + prompt)
-      let prompt_line = message_lines.pop();
-      let _blank_line = message_lines.pop();
-
-      let message = Paragraph::new(message_lines)
-        .style(Style::default().fg(Color::White))
-        .wrap(Wrap { trim: true });
-      f.render_widget(message, layout[0]);
-
-      // Render prompt at bottom, centered
-      if let Some(prompt) = prompt_line {
-        let prompt_widget = Paragraph::new(vec![Line::from(""), prompt])
-          .style(Style::default().fg(Color::White))
-          .alignment(ratatui::layout::Alignment::Center);
-        f.render_widget(prompt_widget, layout[1]);
-      }
-    }
-    AppState::ShowingError { error } => {
-      let block = Block::default()
-        .title("Error")
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .style(Style::default().fg(Color::Red));
-      let area = centered_rect(60, 25, f.area());
-      f.render_widget(Clear, area); // Clear background
-      f.render_widget(block, area);
-
-      // Calculate inner area with margin for the message
-      let inner_area = Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: area.height.saturating_sub(2),
-      };
-
-      use ratatui::text::Line;
-
-      // Split inner area: message area (flexible) and dismiss text at bottom (1 line)
-      let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-          Constraint::Min(0),    // Message area
-          Constraint::Length(2), // Blank line + dismiss text
-        ])
-        .split(inner_area);
-
-      let error_display = Paragraph::new(format!("{:#}", error))
-        .style(Style::default().fg(Color::White))
-        .wrap(Wrap { trim: true });
-      f.render_widget(error_display, layout[0]);
-
-      // Render dismiss text at bottom, centered
-      let dismiss_text = Paragraph::new(vec![Line::from(""), Line::from("Enter or Esc to dismiss")])
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(ratatui::layout::Alignment::Center);
-      f.render_widget(dismiss_text, layout[1]);
-    }
-  }
+        cx.build(any((
+            // Main layout: header, list, footer
+            vstack((
+                header(device_info, networks, is_dialog_open),
+                network_list(networks, list_state, *show_detailed_view, is_dialog_open),
+                footer(is_dialog_open),
+            ))
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(1),
+            ]),
+            // Dialog overlay
+            dialog(state),
+        )))
+    })
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-  let popup_layout = Layout::default()
-    .direction(Direction::Vertical)
-    .constraints([
-      Constraint::Percentage((100 - percent_y) / 2),
-      Constraint::Percentage(percent_y),
-      Constraint::Percentage((100 - percent_y) / 2),
-    ])
-    .split(r);
+/// Header showing WiFi status.
+fn header(
+    device_info: &Option<WifiDeviceInfo>,
+    networks: &[WifiInfo],
+    is_dimmed: bool,
+) -> View!() {
+    let wifi_disabled = device_info.as_ref().is_some_and(|info| !info.wifi_enabled);
+    let is_connected = networks.iter().any(|n| n.active);
 
-  Layout::default()
-    .direction(Direction::Horizontal)
-    .constraints([
-      Constraint::Percentage((100 - percent_x) / 2),
-      Constraint::Percentage(percent_x),
-      Constraint::Percentage((100 - percent_x) / 2),
-    ])
-    .split(popup_layout[1])[1]
-}
-
-fn centered_rect_fixed(width: u16, height: u16, r: Rect) -> Rect {
-  let vertical_margin = r.height.saturating_sub(height) / 2;
-  let horizontal_margin = r.width.saturating_sub(width) / 2;
-
-  Rect {
-    x: r.x + horizontal_margin,
-    y: r.y + vertical_margin,
-    width: width.min(r.width),
-    height: height.min(r.height),
-  }
-}
-
-fn draw_header(
-  f: &mut Frame,
-  device_info: &Option<WifiDeviceInfo>,
-  networks: &[WifiInfo],
-  area: Rect,
-  is_dimmed: bool,
-) {
-  // Check if WiFi is disabled
-  let wifi_disabled = device_info.as_ref().map_or(false, |info| !info.wifi_enabled);
-  // Check if we're connected to any network
-  let is_connected = networks.iter().any(|n| n.active);
-
-  let style = if wifi_disabled {
-    // WiFi is disabled - use red color
-    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-  } else if !is_connected {
-    // WiFi is enabled but not connected - use orange color
-    Style::default()
-      .fg(Color::Rgb(255, 165, 0))
-      .add_modifier(Modifier::BOLD)
-  } else if is_dimmed {
-    Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)
-  } else {
-    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-  };
-  let block_style = if wifi_disabled {
-    // WiFi is disabled - use red border
-    Style::default().fg(Color::Red)
-  } else if !is_connected {
-    // WiFi is enabled but not connected - use orange border
-    Style::default().fg(Color::Rgb(255, 165, 0))
-  } else if is_dimmed {
-    Style::default().fg(Color::DarkGray)
-  } else {
-    Style::default()
-  };
-
-  let header_text = if let Some(info) = device_info {
-    let enabled_status = if info.wifi_enabled { "enabled" } else { "disabled" };
-    let connected = networks.iter().any(|n| n.active);
-    let connection_status = if connected { "connected" } else { "not connected" };
-    format!("WeeFee | WiFi {}, {}", enabled_status, connection_status)
-  } else {
-    "WeeFee | Loading...".to_string()
-  };
-
-  let text = Paragraph::new(header_text).style(style).block(
-    Block::default()
-      .borders(Borders::ALL)
-      .border_type(BorderType::Rounded)
-      .style(block_style),
-  );
-  f.render_widget(text, area);
-}
-
-fn draw_network_list(
-  f: &mut Frame,
-  networks: &[WifiInfo],
-  list_state: &mut ListState,
-  show_detailed_view: bool,
-  area: Rect,
-  is_dimmed: bool,
-) {
-  use ratatui::text::{Line, Span};
-
-  let items: Vec<ListItem> = networks
-    .iter()
-    .enumerate()
-    .map(|(i, net)| {
-      let focused = Some(i) == list_state.selected();
-
-      let main_style = if is_dimmed {
-        Style::default().fg(Color::DarkGray)
-      } else if focused {
-        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-      } else {
+    let style = if wifi_disabled {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else if !is_connected {
         Style::default()
-      };
+            .fg(Color::Rgb(255, 165, 0))
+            .add_modifier(Modifier::BOLD)
+    } else if is_dimmed {
+        Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    };
 
-      let prefix = if focused { "→ " } else { "  " };
-      // let active_marker = if net.active { "🛜 " } else { "   " };
-      // let active_marker = if net.active { "● " } else { "  " };
-      // let active_marker = if net.active { "🌐 " } else { "   " };
-      let active_marker = if net.active { "🔗 " } else { "   " };
+    let block_style = if wifi_disabled {
+        Style::default().fg(Color::Red)
+    } else if !is_connected {
+        Style::default().fg(Color::Rgb(255, 165, 0))
+    } else if is_dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
 
-      // Signal strength indicator (always shown)
-      let signal_indicator = match net.strength {
+    let header_text = if let Some(info) = device_info {
+        let enabled_status = if info.wifi_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        let connected = networks.iter().any(|n| n.active);
+        let connection_status = if connected {
+            "connected"
+        } else {
+            "not connected"
+        };
+        format!("WeeFee | WiFi {}, {}", enabled_status, connection_status)
+    } else {
+        "WeeFee | Loading...".to_string()
+    };
+
+    block(text(header_text).style(style))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .style(block_style)
+}
+
+/// Network list with selection.
+fn network_list(
+    networks: &[WifiInfo],
+    list_state: &ratatui::widgets::ListState,
+    show_detailed_view: bool,
+    is_dimmed: bool,
+) -> View!() {
+    let selected = list_state.selected();
+
+    let block_style = if is_dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+
+    list(networks, move |net, i, _is_sel| {
+        network_item(net, i, selected == Some(i), show_detailed_view, is_dimmed)
+    })
+    .title("Networks")
+    .block_style(block_style)
+}
+
+/// Single network item in the list.
+fn network_item(
+    net: &WifiInfo,
+    _index: usize,
+    is_selected: bool,
+    show_detailed_view: bool,
+    is_dimmed: bool,
+) -> ListItem<'static> {
+    let main_style = if is_dimmed {
+        Style::default().fg(Color::DarkGray)
+    } else if is_selected {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
+    let prefix = if is_selected { "→ " } else { "  " };
+    let active_marker = if net.active { "🔗 " } else { "   " };
+
+    let signal_indicator = match net.strength {
         0..=25 => "▁    ",
         26..=50 => "▁▃   ",
         51..=75 => "▁▃▅  ",
         _ => "▁▃▅▇ ",
-      };
+    };
 
-      // Signal style: yellow when focused, gray otherwise
-      let signal_style = if is_dimmed {
+    let signal_style = if is_dimmed {
         Style::default().fg(Color::DarkGray)
-      } else if focused {
+    } else if is_selected {
         Style::default().fg(Color::Yellow)
-      } else {
+    } else {
         Style::default().fg(Color::DarkGray)
-      };
-      let detail_style = if is_dimmed {
-        Style::default().fg(Color::DarkGray)
-      } else {
-        Style::default().fg(Color::DarkGray)
-      };
+    };
 
-      if show_detailed_view {
-        // Multi-line format: network name on first line, details on subsequent lines
-        let mut lines = vec![
-          // First line: prefix, active marker, signal, and SSID
-          Line::from(vec![
+    let detail_style = Style::default().fg(Color::DarkGray);
+
+    if show_detailed_view {
+        let mut lines = vec![Line::from(vec![
             Span::styled(format!("{}{}", prefix, active_marker), main_style),
             Span::styled(signal_indicator, signal_style),
             Span::styled(net.ssid.clone(), main_style),
-          ]),
-        ];
+        ])];
 
-        // Build details for second line
         let mut detail_parts = vec![];
-
-        // Signal strength percentage
         detail_parts.push(format!("signal: {}%", net.strength));
 
-        // Frequency and band information
         if let Some(freq) = net.frequency {
-          let band = if freq >= 2412 && freq <= 2484 {
-            "2.4 GHz"
-          } else if freq >= 5170 && freq <= 5835 {
-            "5 GHz"
-          } else if freq >= 5945 && freq <= 7125 {
-            "6 GHz"
-          } else {
-            "unknown band"
-          };
-          detail_parts.push(format!("frequency: {} MHz ({})", freq, band));
+            let band = if (2412..=2484).contains(&freq) {
+                "2.4 GHz"
+            } else if (5170..=5835).contains(&freq) {
+                "5 GHz"
+            } else if (5945..=7125).contains(&freq) {
+                "6 GHz"
+            } else {
+                "unknown band"
+            };
+            detail_parts.push(format!("frequency: {} MHz ({})", freq, band));
         }
 
-        // Security with warning if weak
-        let warning = if net.weak_security { " (⚠ insecure)" } else { "" };
+        let warning = if net.weak_security {
+            " (⚠ insecure)"
+        } else {
+            ""
+        };
         detail_parts.push(format!("security: {}{}", net.security, warning));
 
-        // Known status
         if net.known {
-          detail_parts.push("known network (F to forget)".to_string());
+            detail_parts.push("known network (F to forget)".to_string());
         }
 
-        // Second line: basic details (always gray, no highlight)
         let detail_indent = Span::styled("          ", detail_style);
         lines.push(
-          Line::from(vec![
-            detail_indent.clone(),
-            Span::styled(detail_parts.join(" | "), detail_style),
-          ])
-          .style(detail_style),
-        ); // Apply style to entire line to prevent highlighting
+            Line::from(vec![
+                detail_indent.clone(),
+                Span::styled(detail_parts.join(" | "), detail_style),
+            ])
+            .style(detail_style),
+        );
 
-        // Third line: advanced details (only for known networks)
         if net.known {
-          let mut advanced_parts = vec![];
+            let mut advanced_parts = vec![];
 
-          if let Some(p) = net.priority {
-            advanced_parts.push(format!("priority: {}", p));
-          }
+            if let Some(p) = net.priority {
+                advanced_parts.push(format!("priority: {}", p));
+            }
 
-          match net.autoconnect {
-            Some(true) => advanced_parts.push("auto-connect: on (A to toggle)".to_string()),
-            Some(false) => advanced_parts.push("auto-connect: off (A to toggle)".to_string()),
-            None => advanced_parts.push("auto-connect: default (A to toggle)".to_string()),
-          }
+            match net.autoconnect {
+                Some(true) => advanced_parts.push("auto-connect: on (A to toggle)".to_string()),
+                Some(false) => advanced_parts.push("auto-connect: off (A to toggle)".to_string()),
+                None => advanced_parts.push("auto-connect: default (A to toggle)".to_string()),
+            }
 
-          match net.autoconnect_retries {
-            Some(r) => advanced_parts.push(format!("auto-connect retries: {}", r)),
-            None => advanced_parts.push("auto-connect retries: default".to_string()),
-          }
+            match net.autoconnect_retries {
+                Some(r) => advanced_parts.push(format!("auto-connect retries: {}", r)),
+                None => advanced_parts.push("auto-connect retries: default".to_string()),
+            }
 
-          if !advanced_parts.is_empty() {
-            lines.push(
-              Line::from(vec![
-                detail_indent,
-                Span::styled(advanced_parts.join(" | "), detail_style),
-              ])
-              .style(detail_style),
-            ); // Apply style to entire line to prevent highlighting
-          }
+            if !advanced_parts.is_empty() {
+                lines.push(
+                    Line::from(vec![
+                        detail_indent,
+                        Span::styled(advanced_parts.join(" | "), detail_style),
+                    ])
+                    .style(detail_style),
+                );
+            }
         }
 
         ListItem::new(lines)
-      } else {
-        // Single line format: just show the network name
+    } else {
         let content = Line::from(vec![
-          Span::styled(format!("{}{}", prefix, active_marker), main_style),
-          Span::styled(signal_indicator, signal_style),
-          Span::styled(net.ssid.clone(), main_style),
+            Span::styled(format!("{}{}", prefix, active_marker), main_style),
+            Span::styled(signal_indicator, signal_style),
+            Span::styled(net.ssid.clone(), main_style),
         ]);
         ListItem::new(content)
-      }
-    })
-    .collect();
-
-  let block_style = if is_dimmed {
-    Style::default().fg(Color::DarkGray)
-  } else {
-    Style::default()
-  };
-  let list = List::new(items).block(
-    Block::default()
-      .borders(Borders::ALL)
-      .border_type(BorderType::Rounded)
-      .title("Networks")
-      .style(block_style),
-  );
-
-  f.render_stateful_widget(list, area, list_state);
+    }
 }
 
-fn draw_footer(f: &mut Frame, area: Rect, is_dimmed: bool) {
-  use ratatui::text::Span;
+/// Footer with keyboard shortcuts.
+fn footer(_is_dimmed: bool) -> View!() {
+    text("↑/↓: Navigate | Enter to dis/connect | D: Details | Q: Quit")
+        .style(Style::default().fg(Color::DarkGray))
+}
 
-  let style = if is_dimmed {
-    Style::default().fg(Color::DarkGray)
-  } else {
-    Style::default().fg(Color::DarkGray)
-  };
+/// Dialog overlay based on current app state.
+fn dialog(state: &AppState) -> View!() {
+    // Clone data out of state to avoid borrowing issues with closures
+    let dialog_data = match state {
+        AppState::Normal => DialogData::None,
+        AppState::EditingPassword { network } => DialogData::Password(network.clone()),
+        AppState::Connecting { .. } => DialogData::Connecting,
+        AppState::ShowingError { error } => DialogData::Error(format!("{:#}", error)),
+        AppState::ConfirmDisconnect { network } => DialogData::Disconnect(network.clone()),
+        AppState::ConfirmForget { network } => DialogData::Forget(network.clone()),
+        AppState::ConfirmWeakSecurity { network } => DialogData::WeakSecurity(network.clone()),
+    };
 
-  let shortcuts = Span::styled("↑/↓: Navigate | Enter to dis/connect | D: Details | Q: Quit", style);
+    with(move |cx| match &dialog_data {
+        DialogData::None => cx.build(any(())),
+        DialogData::Password(network) => cx.build(any(password_dialog(network))),
+        DialogData::Connecting => cx.build(any(connecting_dialog())),
+        DialogData::Error(msg) => cx.build(any(error_dialog_msg(msg))),
+        DialogData::Disconnect(network) => cx.build(any(disconnect_dialog(network))),
+        DialogData::Forget(network) => cx.build(any(forget_dialog(network))),
+        DialogData::WeakSecurity(network) => cx.build(any(weak_security_dialog(network))),
+    })
+}
 
-  let footer = Paragraph::new(shortcuts);
-  f.render_widget(footer, area);
+/// Helper enum for dialog data to avoid lifetime issues.
+enum DialogData {
+    None,
+    Password(WifiInfo),
+    Connecting,
+    Error(String),
+    Disconnect(WifiInfo),
+    Forget(WifiInfo),
+    WeakSecurity(WifiInfo),
+}
+
+/// Password input dialog.
+fn password_dialog(network: &WifiInfo) -> View!() {
+    modal(
+        vstack((
+            // SSID info
+            block(text(format!("Connecting to {}...", network.ssid)))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+            // Password input
+            block(input().style(Style::default().fg(Color::Yellow)))
+                .title("Password")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+        ))
+        .constraints([Constraint::Length(3), Constraint::Length(3)]),
+    )
+    .width(50)
+    .height(6)
+}
+
+/// Connecting throbber dialog.
+fn connecting_dialog() -> View!() {
+    modal(
+        block(
+            throbber("Connecting...")
+                .style(Style::default().fg(Color::Yellow))
+                .throbber_style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        )
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(Color::Cyan)),
+    )
+    .width(30)
+    .height(3)
+}
+
+/// Error dialog with a string message.
+fn error_dialog_msg(error_msg: &str) -> View!() {
+    modal(
+        block(
+            vstack((
+                text(error_msg.to_string())
+                    .style(Style::default().fg(Color::White))
+                    .wrap(),
+                text("Enter or Esc to dismiss")
+                    .style(Style::default().fg(Color::DarkGray)),
+            ))
+            .constraints([Constraint::Min(0), Constraint::Length(2)]),
+        )
+        .title("Error")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(Color::Red)),
+    )
+    .percent(60, 25)
+}
+
+/// Disconnect confirmation dialog.
+fn disconnect_dialog(network: &WifiInfo) -> View!() {
+    modal(
+        block(
+            vstack((
+                text(format!("Disconnect from {}?", network.ssid))
+                    .style(Style::default().fg(Color::White)),
+                yes_no_prompt(),
+            ))
+            .constraints([Constraint::Min(0), Constraint::Length(2)]),
+        )
+        .title("Disconnect")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(Color::Yellow)),
+    )
+    .percent(60, 25)
+}
+
+/// Forget network confirmation dialog.
+fn forget_dialog(network: &WifiInfo) -> View!() {
+    let message = if network.active {
+        "This will disconnect and delete the saved password and settings."
+    } else {
+        "This will delete the saved password and settings."
+    };
+
+    modal(
+        block(
+            vstack((
+                text(format!("Forget network {}?\n\n{}", network.ssid, message))
+                    .style(Style::default().fg(Color::White))
+                    .wrap(),
+                yes_no_prompt(),
+            ))
+            .constraints([Constraint::Min(0), Constraint::Length(2)]),
+        )
+        .title("Forget Network")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(Color::Red)),
+    )
+    .percent(60, 25)
+}
+
+/// Weak security warning dialog.
+fn weak_security_dialog(network: &WifiInfo) -> View!() {
+    let message = if network.security == "Open" {
+        format!(
+            "Network {} has no security. Anyone can intercept your data.",
+            network.ssid
+        )
+    } else if network.security.contains("WEP") {
+        format!(
+            "Network {} uses {}.\nWEP is outdated and can be cracked in minutes. Your data can be easily intercepted by attackers.",
+            network.ssid, network.security
+        )
+    } else {
+        format!(
+            "Network {} uses {}.\nThis encryption method is outdated and insecure. Your data may be vulnerable to interception.",
+            network.ssid, network.security
+        )
+    };
+
+    modal(
+        block(
+            vstack((
+                text(message)
+                    .style(Style::default().fg(Color::White))
+                    .wrap(),
+                text("Continue anyway? Y/N")
+                    .style(Style::default().fg(Color::White)),
+            ))
+            .constraints([Constraint::Min(0), Constraint::Length(2)]),
+        )
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(Color::Red)),
+    )
+    .percent(70, 30)
+}
+
+/// Yes/No prompt text.
+fn yes_no_prompt() -> View!() {
+    text("Yes / No").style(Style::default().fg(Color::DarkGray))
 }

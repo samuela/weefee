@@ -1,7 +1,5 @@
 use crate::network::{WifiDeviceInfo, WifiInfo};
 use ratatui::widgets::ListState;
-use throbber_widgets_tui::ThrobberState;
-use tui_input::Input;
 
 // TODO: split this up/come up with a better design
 pub enum Msg {
@@ -40,20 +38,19 @@ pub enum Msg {
 /// Represents the different modal states of the application.
 /// This enum makes illegal states unrepresentable by associating
 /// state-specific data directly with each variant.
+///
+/// Note: UI widget state (ThrobberState, Input) is now managed by ravel-tui
+/// builders, not stored here.
 #[derive(Debug)]
 pub enum AppState {
   /// Normal browsing mode - user can navigate the network list
   Normal,
   /// Editing password for a network connection
-  EditingPassword {
-    network: WifiInfo,
-    password_input: Input,
-  },
+  /// The actual Input widget state is managed by ravel-tui's input builder
+  EditingPassword { network: WifiInfo },
   /// Currently connecting to a network
-  Connecting {
-    network: WifiInfo,
-    throbber_state: ThrobberState,
-  },
+  /// The ThrobberState is managed by ravel-tui's throbber builder
+  Connecting { network: WifiInfo },
   /// Displaying an error message
   ShowingError { error: anyhow::Error },
   /// Confirming disconnect from active network
@@ -94,7 +91,7 @@ impl App {
       Self::ShouldQuit => None,
       Self::Running {
         networks, list_state, ..
-      } => list_state.selected().map(|ix| networks[ix].clone()),
+      } => list_state.selected().and_then(|ix| networks.get(ix).cloned()),
     }
   }
 
@@ -119,9 +116,7 @@ impl App {
 
     match msg {
       Msg::Tick => {
-        if let AppState::Connecting { throbber_state, .. } = state {
-          throbber_state.calc_next();
-        }
+        // Throbber animation is now handled by ravel-tui's throbber builder
       }
       Msg::Quit => {
         *self = App::ShouldQuit;
@@ -133,8 +128,11 @@ impl App {
       }
       Msg::MoveDown => {
         match list_state.selected() {
-          Some(ix) if ix == networks.len() - 1 => {
+          Some(ix) if networks.len() > 0 && ix == networks.len() - 1 => {
             // If we're focused on the last element, do nothing. Without this special case pressing down on the last element de-focuses it briefly.
+          }
+          _ if networks.is_empty() => {
+            // No networks, nothing to select
           }
           _ => list_state.select_next(),
         }
@@ -167,54 +165,22 @@ impl App {
             *state = AppState::ConfirmWeakSecurity { network: net };
           } else if net.known {
             // Known secure network - connect directly without password prompt
-            *state = AppState::Connecting {
-              network: net.clone(),
-              throbber_state: ThrobberState::default(),
-            };
+            *state = AppState::Connecting { network: net.clone() };
           } else {
             // Unknown secure network - proceed to password input
-            *state = AppState::EditingPassword {
-              network: net.clone(),
-              password_input: Input::default(),
-            };
+            *state = AppState::EditingPassword { network: net.clone() };
           }
         }
       }
-      Msg::Input(c) => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::InsertChar(c));
-        }
-      }
-      Msg::Backspace => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::DeletePrevChar);
-        }
-      }
-      Msg::MoveCursorLeft => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::GoToPrevChar);
-        }
-      }
-      Msg::MoveCursorRight => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::GoToNextChar);
-        }
-      }
-      Msg::MoveCursorWordLeft => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::GoToPrevWord);
-        }
-      }
-      Msg::MoveCursorWordRight => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::GoToNextWord);
-        }
-      }
-      Msg::DeletePrevWord => {
-        if let AppState::EditingPassword { password_input, .. } = state {
-          password_input.handle(tui_input::InputRequest::DeletePrevWord);
-        }
-      }
+      // Input events are now handled by ravel-tui's input builder state
+      // These messages are forwarded to the UI state in main.rs
+      Msg::Input(_) => {}
+      Msg::Backspace => {}
+      Msg::MoveCursorLeft => {}
+      Msg::MoveCursorRight => {}
+      Msg::MoveCursorWordLeft => {}
+      Msg::MoveCursorWordRight => {}
+      Msg::DeletePrevWord => {}
       Msg::SubmitConnection => {
         // If we're in ConfirmWeakSecurity mode, check if network is known
         if let AppState::ConfirmWeakSecurity { network } = &*state {
@@ -222,20 +188,17 @@ impl App {
             // Known insecure network - connect directly
             *state = AppState::Connecting {
               network: network.clone(),
-              throbber_state: ThrobberState::default(),
             };
           } else {
             // Unknown insecure network - go to password input
             *state = AppState::EditingPassword {
               network: network.clone(),
-              password_input: Input::default(),
             };
           }
         } else if let AppState::EditingPassword { network, .. } = &*state {
           // Otherwise, we're submitting from Editing mode, so connect
           *state = AppState::Connecting {
             network: network.clone(),
-            throbber_state: ThrobberState::default(),
           };
         } else {
           panic!("this should never happen");
