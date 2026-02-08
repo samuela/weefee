@@ -1,4 +1,5 @@
-use std::{io, time::Duration};
+use std::io;
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
@@ -7,6 +8,7 @@ use crossterm::{
   terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
+use ravel_tui::{run_frame, UiState};
 use tokio::sync::mpsc;
 
 mod app;
@@ -269,9 +271,12 @@ async fn main() -> Result<()> {
 
   // Main Loop
   let mut app = App::new();
+  let mut ui_state = UiState::new();
 
   loop {
-    terminal.draw(|f| ui::draw(f, &mut app))?;
+    terminal.draw(|f| {
+      run_frame(f, &mut ui_state, || ui::ui(&app));
+    })?;
 
     // Sync input state for key handler
     if let Ok(mut mode) = app_input_state.lock() {
@@ -295,15 +300,19 @@ async fn main() -> Result<()> {
           app = App::ShouldQuit;
         }
         Msg::SubmitConnection => {
-          // This logic is cursed, and we should refactor the entire UI framework/setup to make this suck less
-
-          // Capture password and whether we're coming from EditingPassword BEFORE updating state
+          // Capture password from UI state and whether we're coming from EditingPassword BEFORE updating state
           let (password, was_editing) = if let App::Running {
-            state: AppState::EditingPassword { password_input, .. },
+            state: AppState::EditingPassword { .. },
             ..
           } = &app
           {
-            (password_input.value().to_string(), true)
+            // Get password from UI state
+            let pw = ui_state
+              .dialog_state
+              .input_state()
+              .map(|input| input.value().to_string())
+              .unwrap_or_default();
+            (pw, true)
           } else {
             (String::new(), false)
           };
@@ -386,6 +395,41 @@ async fn main() -> Result<()> {
                 error: anyhow::anyhow!("Cannot toggle auto-connect: network is not saved/known. Connect to it first."),
               };
             }
+          }
+        }
+        Msg::Input(c) => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.insert_char(c);
+          }
+        }
+        Msg::Backspace => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.delete_prev_char();
+          }
+        }
+        Msg::MoveCursorLeft => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.go_to_prev_char();
+          }
+        }
+        Msg::MoveCursorRight => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.go_to_next_char();
+          }
+        }
+        Msg::MoveCursorWordLeft => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.go_to_prev_word();
+          }
+        }
+        Msg::MoveCursorWordRight => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.go_to_next_word();
+          }
+        }
+        Msg::DeletePrevWord => {
+          if let Some(input_state) = ui_state.dialog_state.input_state() {
+            input_state.delete_prev_word();
           }
         }
         _ => {
