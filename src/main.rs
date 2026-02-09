@@ -300,19 +300,13 @@ async fn main() -> Result<()> {
           app = App::ShouldQuit;
         }
         Msg::SubmitConnection => {
-          // Capture password from UI state and whether we're coming from EditingPassword BEFORE updating state
+          // Capture password from App state BEFORE updating state
           let (password, was_editing) = if let App::Running {
-            state: AppState::EditingPassword { .. },
+            state: AppState::EditingPassword { password, .. },
             ..
           } = &app
           {
-            // Get password from UI state
-            let pw = ui_state
-              .dialog_state
-              .input_state()
-              .map(|input| input.value().to_string())
-              .unwrap_or_default();
-            (pw, true)
+            (password.clone(), true)
           } else {
             (String::new(), false)
           };
@@ -395,41 +389,6 @@ async fn main() -> Result<()> {
                 error: anyhow::anyhow!("Cannot toggle auto-connect: network is not saved/known. Connect to it first."),
               };
             }
-          }
-        }
-        Msg::Input(c) => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.insert_char(c);
-          }
-        }
-        Msg::Backspace => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.delete_prev_char();
-          }
-        }
-        Msg::MoveCursorLeft => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.go_to_prev_char();
-          }
-        }
-        Msg::MoveCursorRight => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.go_to_next_char();
-          }
-        }
-        Msg::MoveCursorWordLeft => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.go_to_prev_word();
-          }
-        }
-        Msg::MoveCursorWordRight => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.go_to_next_word();
-          }
-        }
-        Msg::DeletePrevWord => {
-          if let Some(input_state) = ui_state.dialog_state.input_state() {
-            input_state.delete_prev_word();
           }
         }
         _ => {

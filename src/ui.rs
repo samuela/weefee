@@ -2,10 +2,10 @@
 
 use ratatui::layout::Constraint;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{BorderType, Borders, ListItem};
+use ratatui::text::{Line, Span, Text};
+use ratatui::widgets::{BorderType, Borders};
 use ravel::with;
-use ravel_tui::{any, block, input, list, modal, text, throbber, vstack, View};
+use ravel_tui::{any, block, list, modal, text, throbber, vstack, View};
 
 use crate::app::{App, AppState};
 use crate::network::{WifiDeviceInfo, WifiInfo};
@@ -129,7 +129,7 @@ fn network_item(
     is_selected: bool,
     show_detailed_view: bool,
     is_dimmed: bool,
-) -> ListItem<'static> {
+) -> Text<'static> {
     let main_style = if is_dimmed {
         Style::default().fg(Color::DarkGray)
     } else if is_selected {
@@ -232,14 +232,14 @@ fn network_item(
             }
         }
 
-        ListItem::new(lines)
+        Text::from(lines)
     } else {
         let content = Line::from(vec![
             Span::styled(format!("{}{}", prefix, active_marker), main_style),
             Span::styled(signal_indicator, signal_style),
             Span::styled(net.ssid.clone(), main_style),
         ]);
-        ListItem::new(content)
+        Text::from(content)
     }
 }
 
@@ -254,7 +254,15 @@ fn dialog(state: &AppState) -> View!() {
     // Clone data out of state to avoid borrowing issues with closures
     let dialog_data = match state {
         AppState::Normal => DialogData::None,
-        AppState::EditingPassword { network } => DialogData::Password(network.clone()),
+        AppState::EditingPassword {
+            network,
+            password,
+            cursor,
+        } => DialogData::Password {
+            network: network.clone(),
+            password: password.clone(),
+            cursor: *cursor,
+        },
         AppState::Connecting { .. } => DialogData::Connecting,
         AppState::ShowingError { error } => DialogData::Error(format!("{:#}", error)),
         AppState::ConfirmDisconnect { network } => DialogData::Disconnect(network.clone()),
@@ -264,7 +272,11 @@ fn dialog(state: &AppState) -> View!() {
 
     with(move |cx| match &dialog_data {
         DialogData::None => cx.build(any(())),
-        DialogData::Password(network) => cx.build(any(password_dialog(network))),
+        DialogData::Password {
+            network,
+            password,
+            cursor,
+        } => cx.build(any(password_dialog(network, password, *cursor))),
         DialogData::Connecting => cx.build(any(connecting_dialog())),
         DialogData::Error(msg) => cx.build(any(error_dialog_msg(msg))),
         DialogData::Disconnect(network) => cx.build(any(disconnect_dialog(network))),
@@ -276,7 +288,11 @@ fn dialog(state: &AppState) -> View!() {
 /// Helper enum for dialog data to avoid lifetime issues.
 enum DialogData {
     None,
-    Password(WifiInfo),
+    Password {
+        network: WifiInfo,
+        password: String,
+        cursor: usize,
+    },
     Connecting,
     Error(String),
     Disconnect(WifiInfo),
@@ -285,15 +301,18 @@ enum DialogData {
 }
 
 /// Password input dialog.
-fn password_dialog(network: &WifiInfo) -> View!() {
+fn password_dialog(network: &WifiInfo, password: &str, cursor: usize) -> View!() {
+    // Display password as asterisks with cursor
+    let masked: String = "*".repeat(password.len());
+
     modal(
         vstack((
             // SSID info
             block(text(format!("Connecting to {}...", network.ssid)))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
-            // Password input
-            block(input().style(Style::default().fg(Color::Yellow)))
+            // Password display (cursor is handled separately in draw)
+            block(text(masked).style(Style::default().fg(Color::Yellow)))
                 .title("Password")
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),

@@ -965,7 +965,7 @@ dependencies = [
 [[package]]
 name = "ravel"
 version = "0.2.0"
-source = "git+https://github.com/ericson2314/ravel?branch=slop-tui#6f478304e16ee72f7370b29757df8c6dd92ee675"
+source = "git+https://github.com/ericson2314/ravel?branch=slop-tui#49b8a2e5290ead91a4027f3adb60a2ad2fc29bdd"
 dependencies = [
  "paste",
 ]
@@ -973,7 +973,7 @@ dependencies = [
 [[package]]
 name = "ravel-tui"
 version = "0.1.0"
-source = "git+https://github.com/ericson2314/ravel?branch=slop-tui#6f478304e16ee72f7370b29757df8c6dd92ee675"
+source = "git+https://github.com/ericson2314/ravel?branch=slop-tui#49b8a2e5290ead91a4027f3adb60a2ad2fc29bdd"
 dependencies = [
  "paste",
  "ratatui",

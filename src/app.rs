@@ -38,16 +38,18 @@ pub enum Msg {
 /// Represents the different modal states of the application.
 /// This enum makes illegal states unrepresentable by associating
 /// state-specific data directly with each variant.
-///
-/// Note: UI widget state (ThrobberState, Input) is now managed by ravel-tui
-/// builders, not stored here.
 #[derive(Debug)]
 pub enum AppState {
   /// Normal browsing mode - user can navigate the network list
   Normal,
   /// Editing password for a network connection
-  /// The actual Input widget state is managed by ravel-tui's input builder
-  EditingPassword { network: WifiInfo },
+  EditingPassword {
+    network: WifiInfo,
+    /// The password being entered
+    password: String,
+    /// Cursor position in the password string
+    cursor: usize,
+  },
   /// Currently connecting to a network
   /// The ThrobberState is managed by ravel-tui's throbber builder
   Connecting { network: WifiInfo },
@@ -168,19 +170,98 @@ impl App {
             *state = AppState::Connecting { network: net.clone() };
           } else {
             // Unknown secure network - proceed to password input
-            *state = AppState::EditingPassword { network: net.clone() };
+            *state = AppState::EditingPassword {
+              network: net.clone(),
+              password: String::new(),
+              cursor: 0,
+            };
           }
         }
       }
-      // Input events are now handled by ravel-tui's input builder state
-      // These messages are forwarded to the UI state in main.rs
-      Msg::Input(_) => {}
-      Msg::Backspace => {}
-      Msg::MoveCursorLeft => {}
-      Msg::MoveCursorRight => {}
-      Msg::MoveCursorWordLeft => {}
-      Msg::MoveCursorWordRight => {}
-      Msg::DeletePrevWord => {}
+      Msg::Input(c) => {
+        if let AppState::EditingPassword {
+          password, cursor, ..
+        } = state
+        {
+          password.insert(*cursor, c);
+          *cursor += 1;
+        }
+      }
+      Msg::Backspace => {
+        if let AppState::EditingPassword {
+          password, cursor, ..
+        } = state
+        {
+          if *cursor > 0 {
+            *cursor -= 1;
+            password.remove(*cursor);
+          }
+        }
+      }
+      Msg::MoveCursorLeft => {
+        if let AppState::EditingPassword { cursor, .. } = state {
+          if *cursor > 0 {
+            *cursor -= 1;
+          }
+        }
+      }
+      Msg::MoveCursorRight => {
+        if let AppState::EditingPassword {
+          password, cursor, ..
+        } = state
+        {
+          if *cursor < password.len() {
+            *cursor += 1;
+          }
+        }
+      }
+      Msg::MoveCursorWordLeft => {
+        if let AppState::EditingPassword {
+          password, cursor, ..
+        } = state
+        {
+          // Move to start of previous word
+          while *cursor > 0 && password.chars().nth(*cursor - 1) == Some(' ') {
+            *cursor -= 1;
+          }
+          while *cursor > 0 && password.chars().nth(*cursor - 1) != Some(' ') {
+            *cursor -= 1;
+          }
+        }
+      }
+      Msg::MoveCursorWordRight => {
+        if let AppState::EditingPassword {
+          password, cursor, ..
+        } = state
+        {
+          let len = password.len();
+          // Move to end of current word
+          while *cursor < len && password.chars().nth(*cursor) != Some(' ') {
+            *cursor += 1;
+          }
+          // Skip spaces
+          while *cursor < len && password.chars().nth(*cursor) == Some(' ') {
+            *cursor += 1;
+          }
+        }
+      }
+      Msg::DeletePrevWord => {
+        if let AppState::EditingPassword {
+          password, cursor, ..
+        } = state
+        {
+          let start = *cursor;
+          // Skip spaces
+          while *cursor > 0 && password.chars().nth(*cursor - 1) == Some(' ') {
+            *cursor -= 1;
+          }
+          // Delete word
+          while *cursor > 0 && password.chars().nth(*cursor - 1) != Some(' ') {
+            *cursor -= 1;
+          }
+          password.drain(*cursor..start);
+        }
+      }
       Msg::SubmitConnection => {
         // If we're in ConfirmWeakSecurity mode, check if network is known
         if let AppState::ConfirmWeakSecurity { network } = &*state {
@@ -193,6 +274,8 @@ impl App {
             // Unknown insecure network - go to password input
             *state = AppState::EditingPassword {
               network: network.clone(),
+              password: String::new(),
+              cursor: 0,
             };
           }
         } else if let AppState::EditingPassword { network, .. } = &*state {
